@@ -1,0 +1,30 @@
+
+Introduction
+------------
+This module is intends to be your best tool to manipulate
+every kind of complex data structure in Perl. 
+Use then Perl facilities to translate every DOM structure in order to
+compare, navigate and merge them at anytime.
+
+Resources on the Internet
+-------------------------
+The latest Data::Deep module can be found at:
+http://www.perl.com/CPAN/modules/by-module/Data/Deep/
+
+General information aboutthis project is :
+http://<DAMO>
+
+Installing
+----------
+To install, do the usual "perl Makefile.PL ; make ; make install".
+
+Use it and abuse it,
+
+
+Stay cool!
+
+Matthieu Damerose
+damo@cpan.org
+
+November 12, 2011
+
