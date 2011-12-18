@@ -11,17 +11,18 @@
 # Before `make install' is performed this script should be runnable with
 # `make test'. After `make install' it should work as `perl test.pl'
 
+use strict;
+use Test;
+BEGIN { plan tests => 11};
+require 'TEST.pl';
 START_TEST_MODULE(__FILE__);
 
-use Data::Deep qw(:config);
+o_complex(0);
 
-  o_complex(0);
-
-
-  #############################################
+#############################################
 
 
-  $fs1={
+  my $fs1={
 	content =>{
 		   dir1=>
 		   {
@@ -45,7 +46,7 @@ use Data::Deep qw(:config);
 
   #############################################
 
-  $fs2 = eval Dumper( $fs1 );
+  my $fs2 = eval Dumper( $fs1 );
 
   my $test_doc = $fs2->{content}{dir1}{content}{'test.doc'};
 
@@ -67,9 +68,8 @@ use Data::Deep qw(:config);
   my $crc_k = ['%','crc32'];
   my $sz_k = ['%','sz'];
 
-
-  testSearch "Search key SZ",  $fs1, $sz_k,  0, [4,5,2];
-  testSearch "Search key CRC", $fs1, $crc_k, 0, [4562,8,123];
+  ok(testSearch("Search key SZ",  $fs1, $sz_k,  0, [4,5,2]));
+  ok(testSearch("Search key CRC", $fs1, $crc_k, 0, [4562,8,123]));
 
 
   #############################################
@@ -84,60 +84,59 @@ use Data::Deep qw(:config);
   #############################################
 
 
-  testPathSearch "Search Complex key 1", $fs1,
-    ['/','CRC'], # you cannot put '=','value' because the ?= eat it!
-#    ['/','CRC'], # you cannot put '=','value' because the ?= eat it!
-    [
-     ['%','content','%','dir1','%','content','%','test.doc','/','CRC'],
-     ['%','content','%','dir1','%','content','%','file1','/','CRC'],
-     ['%','content','%','dir1','/','CRC'],
-    ];
+  ok(testPathSearch("Search Complex key 1", $fs1,
+		    ['/','CRC'], # you cannot put '=','value' because the ?= eat it!
+		    #    ['/','CRC'], # you cannot put '=','value' because the ?= eat it!
+		    [
+		     ['%','content','%','dir1','%','content','%','test.doc','/','CRC'],
+		     ['%','content','%','dir1','%','content','%','file1','/','CRC'],
+		     ['%','content','%','dir1','/','CRC'],
+		    ]));
 
   o_key({ A => {regexp=>['|','Data::Dumper','%','todump','@',0,'$','%','key'],
 	      eval=>'[0]->{key}'
 	     }
       });
 
-  testPathSearch "Search Complex key 2",
-    { toto1=> new Data::Dumper([\ {key=>'toto one'}]),
-      toto2=> new Data::Dumper([\ {key=>'toto two'}])
-    },
-    ['/','A','=',sub{/two/}], # you can put '=','value'
-    [['%','toto2','/','A','=','toto two']];
-
-  my $key_path={
-		CRC => {regexp=>$crc_k,
-			eval=>'{crc32}',
-			priority=>1
-		       },
-		SZ  => {regexp=>$sz_k,
-			eval=>'{sz}',
-			priority=>2
-		       },
-		'.'  => {regexp=>['%','content'],
-			 eval=>'{content}',
-			 priority=>3
-			}
-	       };
-
-  o_key($key_path);
-
-  testPathSearch "Search Complex key 3",$fs1,
-    ['/','CRC','=',4562],
-    [['/','.','%','dir1','/','.','%','file1','/','CRC','=',4562]];
+  ok(testPathSearch("Search Complex key 2",
+		    { toto1=> new Data::Dumper([\ {key=>'toto one'}]),
+		      toto2=> new Data::Dumper([\ {key=>'toto two'}])
+		    },
+		    ['/','A','=',sub{/two/}], # you can put '=','value'
+		    [['%','toto2','/','A','=','toto two']]));
 
 
-  testSearch "Search Complex key 4",
+  o_key({
+	 CRC => {regexp=>$crc_k,
+		 eval=>'{crc32}',
+		 priority=>1
+		},
+	 SZ  => {regexp=>$sz_k,
+		 eval=>'{sz}',
+		 priority=>2
+		},
+	 '.'  => {regexp=>['%','content'],
+		  eval=>'{content}',
+		  priority=>3
+		 }
+	});
+
+  ok(testPathSearch("Search Complex key 3",$fs1,
+		    ['/','CRC','=',4562],
+		    [['/','.','%','dir1','/','.','%','file1','/','CRC','=',4562]]));
+
+
+  ok(testSearch("Search Complex key 4",
     $fs1,
     ['/','CRC','=',123],
     -2,
-    [ $fs1->{'content'}{'dir1'} ];
+    [ $fs1->{'content'}{'dir1'} ]));
 
-  testSearch "Search Complex key 5",
-    $fs1,
-    ['/','CRC','=',4562],
-    -2,
-    [ $fs1->{'content'}{'dir1'}{'content'}{'file1'} ];
+  ok(testSearch("Search Complex key 5",
+		$fs1,
+		['/','CRC','=',4562],
+		-2,
+		[ $fs1->{'content'}{'dir1'}{'content'}{'file1'} ]));
 
 
 
@@ -156,19 +155,18 @@ use Data::Deep qw(:config);
   testCompare( "key compare",
 	       {
 		crc32=>20,sz=>45,
-		content=>{op=>ds}
+		content=>{op=>'ds'}
 	       },
 	       {
 		crc32=>24,sz=>45,
-		content=>{op=>ds}
+		content=>{op=>'ds'}
 	       },
 	       [ 'change(/CRC,/CRC)=20/=>24' ]
 	     );
 
 
-  o_key($key_path);
 
-  title 'test to modify a returned node' and do {
+  title('test to modify a returned node') and do {
     my @nodes = path($fs2,
 		     [ search($fs2,['/','CRC','=',4562])
 		     ],-2);	
@@ -177,10 +175,12 @@ use Data::Deep qw(:config);
   };
 
 
-  # Check this result / understand / this is powerfull !
+  o_complex(1);
+
+  # Power
+
   #warn Dumper($fs1).' Vs '.Dumper($fs2);
 
-  o_complex(1);
   testCompare( "key compare 2", $fs1 , $fs2,
 	       [ 'add(/.%dir1/.,/.%dir1/.%docs)={"sz"=>45,"content"=>{},"crc32"=>0}',
 		 'change(/.%dir1/SZ,/.%dir1/SZ)=2/=>1',

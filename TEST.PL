@@ -14,23 +14,15 @@
 
 
 use strict;
-use Test;
 
-BEGIN { plan tests => 14 , todo => [168] }
-
-
-ok(1,1);
-
-use lib 'lib/';
 use Data::Dumper;
 
-our $loaded;
-BEGIN { $| = 1; print "1..1 "; }
-END {   ko('load module failed') unless $loaded;}
+# avoid $VAR1 in subexpressions
+$Data::Dumper::Terse = 1;
 
+use lib 'lib/';
 use Data::Deep qw(:DEFAULT :convert :config);
-$loaded = 1;
-ok(1);
+
 
 our $TEST_FILTER;
 
@@ -38,19 +30,34 @@ our $TEST_FILTER;
 #$TEST_FILTER = '/complex\smode/';
 #$TEST_FILTER = '/glob\s1/i';
 
-
-##############################################################################
-sub bug { print STDERR @_ if (Data::Deep::o_debug())}
-##############################################################################
+#o_debug(1);
 
 
 ##############################################################################
-sub START_TEST_MODULE($) { print "\n".('#' x 80)
-			     ."\n              >>>>>>>>>>>>>>>  ".shift()." <<<<<<<<<<<<<<<<<<<<<<< \n"
-			       .('#' x 80)."\n";
-			 }
-sub END_TEST_MODULE($)   { print 
-			      "\n              ~~~~~~~~~~~~~~~  ".shift()." Finished   ~~~~~~~~~~~~ \n"; }
+sub bug { 
+  Data::Deep::o_debug()
+      and 
+	print STDERR @_;
+}
+##############################################################################
+
+
+##############################################################################
+sub START_TEST_MODULE($) {
+  Data::Deep::o_debug()
+      and
+	print "\n".('#' x 80)
+	  ."\n              >>>>>>>>>>>>>>>  ".shift()." <<<<<<<<<<<<<<<<<<<<<<< \n"
+	    .('#' x 80)."\n";
+}
+
+sub END_TEST_MODULE($)   {
+  Data::Deep::o_debug()
+      and
+	print
+	  "\n              ~~~~~~~~~~~~~~~  ".shift()." Finished   ~~~~~~~~~~~~ \n";
+}
+
 ##############################################################################
 
 ##############################################################################
@@ -59,12 +66,12 @@ sub title {
 
   if ($TEST_FILTER) {
     eval '$title =~ '.$TEST_FILTER or return;
-    print "\n+++ $title ";
+    bug "\n+++ $title ";
   }
   else {
-    print "\n== ".$title;
+    bug "\n== ".$title;
   }
-  print " : ";
+  bug " : ";
   return 1;
 }
 ##############################################################################
@@ -81,8 +88,6 @@ sub testRes($$) {
   bug "\n_____________________________________________________________\n";
   bug "Result = \n\t".join("\n\t", map({domPatch2TEXT $_} @result))."\n";
   bug "Waited = \n\t".join("\n\t", @waited)."\n";
-
-  local $Data::Dumper::Terse = 1;  # no $VAR1
 
   my @err;
   my $res;
@@ -132,7 +137,7 @@ sub testRes($$) {
 
 ##############################################################################
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
-sub testPathSearch { # testing if search() return the right paths
+sub testPathSearch($$$$;$) { # testing if search() return the right paths
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
   my $msg = "search() / ".shift()." : ";
   my $dom = shift;
@@ -143,21 +148,24 @@ sub testPathSearch { # testing if search() return the right paths
 
   title $msg or return;
 
-  local $Data::Dumper::Terse = 1;  # no $VAR1=
-
   my $dom_before = Dumper($dom);
 
   #          search() TEST
   #########################################
   my @paths = search $dom, $what, $nb_occ;
 
-  print "\n - check bords effect. ";
-  ok(Dumper($dom),$dom_before);
+  bug "\n - check bords effect. ";
+  if (Dumper($dom) ne $dom_before) {
+    bug "\nWaited    : ".$dom_before."\n";
+    bug "\nCorrupted : ".Dumper($dom)."\n";
+    return 0;
+  }
 
-  print " - check search results. ";
+  bug " - check search results. ";
   my $res = testRes( \@paths, $waited );
-  $res and print "$res\n";
-  ok(!defined($res));
+  $res and bug "$res\n";
+  (!defined($res)) or return 0;
+  return 1;
 }
 
 
@@ -172,8 +180,6 @@ sub testTravel { # testing if travel() goes into the right values
 
   title "travel through a node / $msg ()" or return;
 
-  local $Data::Dumper::Terse = 1;  # no $VAR1
-
   my $visitor_test =  sub {
     my $node = shift();
     my $depth = shift;
@@ -187,19 +193,28 @@ sub testTravel { # testing if travel() goes into the right values
   my $dom_before = Dumper($dom);
   my @res = travel($dom, $visitor_test);
 
-  print "\n - check bords effect. ";
-  ok(Dumper($dom), $dom_before );
+  bug "\n - check bords effect. ";
+  if (Dumper($dom) ne $dom_before) {
+    bug "\nWaited    : ".$dom_before."\n";
+    bug "\nCorrupted : ".Dumper($dom)."\n";
+    return 0;
+  }
+
   #
 
-  print " - check search results. ";
+  bug " - check search results. ";
   Data::Deep::debug(@res);
   my $d1= Dumper(\@res);
   my $d2= Dumper($waited);
 
-#  $d1=~s/\n$//;
-#  $d2=~s/\n$//;
-
-  ok($d1,$d2);	
+  $d1=~s/\n$//;
+  $d2=~s/\n$//;
+  if ($d1 ne $d2) {
+    bug "\nWaited    : ".$d1."\n";
+    bug "\nCorrupted : ".$d2."\n";
+    return 0;
+  }
+  return 1;	
 }
 
 ##############################################################################
@@ -215,8 +230,6 @@ sub testSearch { # testing if search() then path() return the right values
 
   title "search a node / $msg " or return;
 
-  local $Data::Dumper::Terse = 1;  # no $VAR1
-
   my $dom_before = Dumper($dom);
 
   #          search() TEST
@@ -229,8 +242,14 @@ sub testSearch { # testing if search() then path() return the right values
 		  [@res],
 		  $depth);
 
-  print "\n - check bords effect. ";
-  ok(Dumper($dom), $dom_before);
+  bug "\n - check bords effect. ";
+  if (Dumper($dom) ne $dom_before) {
+    bug "\nWaited    : ".$dom_before."\n";
+    bug "\nCorrupted : ".Dumper($dom)."\n";
+    return 0;
+  }
+
+  my $t1 = ok(Dumper($dom), $dom_before);
 
   #my $res = testRes( \@nodes, $waited );
   #$res and ko($res) or ok($msg)
@@ -238,10 +257,11 @@ sub testSearch { # testing if search() then path() return the right values
   my $d1= Dumper(\@nodes);
   my $d2= Dumper($waited);
 
-  print " - check search results. ";
+  bug " - check search results. ";
   $d1=~s/\n$//;
   $d2=~s/\n$//;
-  ok($d1,$d2);
+
+  return $t1 and ok($d1,$d2);
 }
 
 
@@ -257,8 +277,6 @@ sub testPath { # test for path()
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
   title $msg or return;
-
-  local $Data::Dumper::Terse = 1;  # no $VAR1
 
   my $dom_before = Dumper($dom);
 
@@ -297,7 +315,6 @@ sub testCompare {
 
   title $msg or return;
 
-  local $Data::Dumper::Terse = 1;  # no $VAR1
 
   my $d1 = Dumper($a1);
   my $d2 = Dumper($a2);
@@ -306,35 +323,44 @@ sub testCompare {
   ############################################
   my @pth_1_2 = compare($a1,$a2);
 
-  print "\n - check compare results : ";
+  bug "\n - check compare results : ";
   my $res = testRes( \@pth_1_2, $waited_patch );
-  ok(!defined($res));
-  $res and print "$res\n";
+  $res and bug "$res\n";
+  (!defined($res)) or return 0;
 
-  print " - check bords effect. ";ok(Dumper($a1), $d1);
-  print "   ";ok(Dumper($a2), $d2);
+  bug "\n - check bords effect.";
+  if (Dumper($a1) ne $d1) {
+    bug "\nWaited    : ".$d1."\n";
+    bug "\nCorrupted : ".Dumper($a1)."\n";
+    return 0;
+  }
 
+  if (Dumper($a2) ne $d2) {
+    bug "\nWaited    : ".$d2."\n";
+    bug "\nCorrupted : ".Dumper($a2)."\n";
+    return 0;
+  }
 
   if ($patch_test) {  ##  applyPatch() TEST
 
-    print " - check applyPatch. ";
+    bug "\n - check applyPatch. ";
 
     my $a1_patched = applyPatch($a1, @pth_1_2);
 
     my @res = compare($a1_patched,$a2);
-    ok($#res,-1);
 
     if (@res) {
-      print "After applying patch {\n  - "
+      bug "After applying patch {\n  - "
 	.join("\n  - ",map {domPatch2TEXT $_} @pth_1_2)
 	  ."\n}\nStill found remaining differences {\n  - "
 	.join("\n  - ",map {domPatch2TEXT $_} @res)
 	  ."\n}\nDom dump after patch is ".Dumper($a1_patched);
+      return 0;
     }
     else {  ## Apply reverse patch
 
       my @patch_2_1 = compare($a2,$a1);
-      print " - ApplyPatch reverse :";
+      bug "\n - ApplyPatch reverse :";
 
       #                applyPatch() TEST
       ############################################
@@ -343,34 +369,17 @@ sub testCompare {
       #      compare() TEST
       ############################################
       @res = compare($a1,$a2_patched);
-      ok(Dumper(\@res),"[]\n");
+      if (@res) {
+	bug("Remaining differences after applying reverse patcher :\n"
+	    .join("\n",map {domPatch2TEXT $_} @res)
+	    ."\nResult after patch is ".Dumper($a2_patched));
 
-      #                     domPatch2TEXT() TEST
-      ############################################
-      (@res) and bug("Remaining differences after applying reverse patcher :\n"
-		     .join("\n",map {domPatch2TEXT $_} @res)
-		     ."\nResult after patch is ".Dumper($a2_patched))
-	or bug("Automatic patch applied.");
+	return 0;
+      }
     }
   }
-  return $res;
+  return 1;
 }
-
-
-#o_debug(1);
-
-## compare 2 dom
-# print join("\n\t", map({domPatch2TEXT $_} compare(eval $a,eval $b)));
-
-
-o_complex(0);
-
-require 't/travel.t';
-require 't/search.t';
-require 't/compare.t';
-require 't/key.t';
-#require 't/special.t';
-require 't/zap.t';
 
 
    ###########################################################################

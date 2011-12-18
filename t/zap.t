@@ -11,15 +11,19 @@
 # Before `make install' is performed this script should be runnable with
 # `make test'. After `make install' it should work as `perl test.pl'
 
+use strict;
+use Test;
+BEGIN { plan tests => 1};
+require 'TEST.pl';
 START_TEST_MODULE(__FILE__);
 
-  use Data::Deep qw(:config);
+o_complex(0);
+ok(1);
 
-
-
+#############################################################################
 
 # test le zap avec tous les types 
-#mettre ici le test de boucle
+# mettre ici le test de boucle
 
 
 

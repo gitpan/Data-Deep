@@ -3,3 +3,6 @@ Revision history for Perl extension Data::DeepManip.
 0.01 Sat Nov 12 17:53:19 RST 2011
 	- original version; created by Matthieu Damerose
 
+0.02 Sun Dec 11 21:00:00 RST 2011
+	- MANIFEST missing travel.t correction; Matthieu Damerose
+

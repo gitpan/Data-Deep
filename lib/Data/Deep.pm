@@ -154,7 +154,7 @@ See conversion function
 # General version and rules
 ##############################################################################
 use 5.004;
-$VERSION = '0.01';
+$VERSION = '0.02';
 #$| = 1;
 
 ##############################################################################
@@ -164,7 +164,7 @@ use Data::Dumper;
 # c:\Perl\lib\Data\Dumper.pm  line 229
 use Carp;
 use strict;
-#use warnings;
+use warnings;
 no integer;
 no strict 'refs';
 no warnings;
@@ -1210,7 +1210,7 @@ EX:
     my $e = $path2eval__->('$dom', $father_nb, @path);
     my $r = eval $e;
     #debug $e.' : '.Dumper($r);
-    die 'path() '.$e.' : '.$@ if ($@);
+    die __FILE__.' : path() '.$e.' : '.$@ if ($@);
     push @nodes,$r
   }
   return shift @nodes unless (wantarray());
@@ -1288,9 +1288,11 @@ EX:
 
     foreach $p1 (@patch) {
       foreach $p2 (@patch) {
+
 	if ($p1->{action} eq 'remove' and
 	    $p2->{action} eq 'add' and
 	    (Dumper($p1->{val_orig}) eq Dumper($p2->{val_dest}))) {
+
 
 	  #my @com = searchSuffix__($p1->{path_orig}, $p2->{path_dest}, \@patch);
 	  #@com or next;
@@ -1454,6 +1456,7 @@ EX:
       {
 
 	######################################## !!!!! ARRAY COMPARE (not complex mode)
+
 	unless ($CFG->{o_complex}) {
 
 	  my $min = $#{$d1};
@@ -1759,7 +1762,7 @@ sub domPatch2TEXT(@) {
 
 =item I<domPatch2TEXT>(<patch 1>, <patch 2> [,<patch N>])
 
-convert a list of patches in DOM format (internal Data;;Deep format)
+convert a list of patches formatted in perl dom (man perldsc)
 into a readable text format.
 Mainly used to convert the compare result (format dom)
 
@@ -1864,8 +1867,8 @@ sub textPatch2DOM(@) {
 
 =item I<textPatch2DOM>(<text patch 1>, <text patch 2> [,<text patch N>])
 
-convert a list of patches in text format (readable text format format)
-into a DOM format (internal Data;;Deep format).
+convert a list of patches formatted in text (readable text format format)
+to a perl DOM format (man  perldsc).
 Mainly used to convert the compare result (format dom)
 
 ARGS:
