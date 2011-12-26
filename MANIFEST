@@ -7,7 +7,7 @@ Changes	            	- revision history
 lib/Data/Deep.pm        - the main module
 
 
-TEST.PL                 - the test entry point
+t/TEST.PL               - the test entry point
 t/special.t            	- test script for 
 t/search.t            	- test script for search function
 t/compare.t            	- test script for compare and applyPath functions

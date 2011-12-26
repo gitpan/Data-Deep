@@ -15,6 +15,10 @@
 use strict;
 use Test;
 BEGIN { plan tests => 2};
+
+use lib '.';
+use lib 't';
+
 require 'TEST.pl';
 START_TEST_MODULE(__FILE__);
 
