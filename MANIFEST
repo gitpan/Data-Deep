@@ -7,12 +7,6 @@ Changes	            	- revision history
 lib/Data/Deep.pm        - the main module
 
 
-t/TEST.PL               - the test entry point
-t/special.t            	- test script for 
-t/search.t            	- test script for search function
-t/compare.t            	- test script for compare and applyPath functions
-t/key.t            	- test script for key use in structures
-t/zap.t          	- test script for zap node in the structure
-t/travel.t              - test script for Data::Deep::travel()
+t/deep.t                - the tests and test functions
 
 META.yml                                 Module meta-data (added by MakeMaker)

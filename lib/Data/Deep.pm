@@ -154,7 +154,7 @@ See conversion function
 # General version and rules
 ##############################################################################
 use 5.004;
-$VERSION = '0.03';
+$VERSION = '0.04';
 #$| = 1;
 
 ##############################################################################
@@ -529,7 +529,8 @@ my $matchPath = sub {
 	  $v_patt = $pattern[$j++];
 
 	  if (ref($v_patt) eq 'CODE') { # regexp or complexe val
-	    $v_patt->($_=$v_where) or last PATTERN
+            local $_ = $v_where;
+	    $v_patt->($_) or last PATTERN
 	  }
 	  elsif (ref($v_patt) and (Dumper($v_patt) ne Dumper($v_where))) {
 	    last PATTERN;
