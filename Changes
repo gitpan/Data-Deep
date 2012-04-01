@@ -6,3 +6,16 @@ Revision history for Perl extension Data::DeepManip.
 0.02 Sun Dec 11 21:00:00 RST 2011
 	- MANIFEST missing travel.t correction; Matthieu Damerose
 
+0.03 Mon Dec 26 22:14:30 RST 2011
+	- seems auto-tests are not passing (Local OK); Matthieu Damerose
+
+0.04 Sun Jan 1 18:22:57 RST 2012
+	- Successfull correction on auto-test; Matthieu Damerose
+
+0.05 Sun Feb 19 20:56:43 RST 2012
+	- perl licence in Makefile.PL ; Matthieu Damerose
+
+0.06 
+	- Changes file update ; Matthieu Damerose
+	- Infinite loop detection 
+

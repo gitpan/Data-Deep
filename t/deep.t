@@ -82,12 +82,12 @@ sub title {
 sub testRes($$) {	
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
   my @result = @{shift()};  # DOM format
-  my @waited = @{shift()};  # TEXT format
+  my @waited = @{shift()};  # DOM format
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
   bug "\n_____________________________________________________________\n";
   bug "Result = \n\t".join("\n\t", map({domPatch2TEXT $_} @result))."\n";
-  bug "Waited = \n\t".join("\n\t", @waited)."\n";
+  bug "Waited = \n\t".join("\n\t", map({ref($_) && domPatch2TEXT($_) || $_} @waited))."\n";
 
   my @err;
   my $res;
@@ -123,10 +123,11 @@ sub testRes($$) {
   }
   if (@err or @waited) {
     my $msg;
-    $msg = "\n  Waited result remain :\n\t".join("\n\t",map({(ref($_)?domPatch2TEXT($_):$_)} @waited))
-      if (@waited);
-    $msg .= "\n  Results remain :\n\t".join("\n\t",map({domPatch2TEXT $_} @err))
-      if (@err);
+    @waited and
+      $msg = "\n  Waited result remain :\n\t".join("\n\t",map({(ref($_)?domPatch2TEXT($_):$_)} @waited));
+
+    @err and
+      $msg .= "\n  Results remain :\n\t".join("\n\t",map({domPatch2TEXT $_} @err));
 
     return $msg
   }
@@ -161,10 +162,13 @@ sub testPathSearch($$$$;$) { # testing if search() return the right paths
     return 0;
   }
 
-  bug " - check search results. ";
+  bug "\n - check search results. ";
+
   my $res = testRes( \@paths, $waited );
-  $res and bug "$res\n";
-  (!defined($res)) or return 0;
+  if ($res) {
+    bug "$res\n";
+    return 0;
+  }
   return 1;
 }
 
@@ -174,8 +178,8 @@ sub testPathSearch($$$$;$) { # testing if search() return the right paths
 sub testTravel { # testing if travel() goes into the right values
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
   my $msg = shift();
-  my $dom = shift;
-  my $waited = shift; # we'll try to automatise that
+  my $dom = shift();
+  my $waited = shift(); # we'll try to automatise that
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
   title "travel through a node / $msg ()" or return;
@@ -193,8 +197,9 @@ sub testTravel { # testing if travel() goes into the right values
   my $dom_before = Dumper($dom);
   my @res = travel($dom, $visitor_test);
 
-  bug "\n - check bords effect. ";
-  if (Dumper($dom) ne $dom_before) {
+  bug "\n - check bords effect.";
+
+  if ($dom_before ne Dumper($dom)) {
     bug "\nWaited    : ".$dom_before."\n";
     bug "\nCorrupted : ".Dumper($dom)."\n";
     return 0;
@@ -202,16 +207,16 @@ sub testTravel { # testing if travel() goes into the right values
 
   #
 
-  bug " - check search results. ";
+  bug "\n - check search results. ";
   Data::Deep::debug(@res);
-  my $d1= Dumper(\@res);
-  my $d2= Dumper($waited);
+  my $res= Dumper(\@res);
+  my $wait= Dumper($waited);
 
-  $d1=~s/\n$//;
-  $d2=~s/\n$//;
-  if ($d1 ne $d2) {
-    bug "\nWaited    : ".$d1."\n";
-    bug "\nCorrupted : ".$d2."\n";
+  $res=~s/\n$//;
+  $wait=~s/\n$//;
+  if ($res ne $wait) {
+    bug "\nWaited    : ".$wait."\n";
+    bug "\nResult : ".$res."\n";
     return 0;
   }
   return 1;	
@@ -236,8 +241,10 @@ sub testSearch { # testing if search() then path() return the right values
   #########################################
   my @res = search($dom, $what, 999);
 
+  bug "\n - path results = ".Dumper(\@res);
   #          path() TEST
   #########################################
+
   my @nodes= path($dom,
 		  [@res],
 		  $depth);
@@ -249,19 +256,17 @@ sub testSearch { # testing if search() then path() return the right values
     return 0;
   }
 
-  my $t1 = ok(Dumper($dom), $dom_before);
+  bug "\n - check search results. ";
 
-  #my $res = testRes( \@nodes, $waited );
-  #$res and ko($res) or ok($msg)
+  my @diff = compare(\@nodes,$waited);
 
-  my $d1= Dumper(\@nodes);
-  my $d2= Dumper($waited);
+  if (@diff) {
+    bug "\nWaited : ".join("\n  - ",map {domPatch2TEXT $_} @diff)."\n";
 
-  bug " - check search results. ";
-  $d1=~s/\n$//;
-  $d2=~s/\n$//;
+    return 0;
+  }
 
-  return $t1 and ok($d1,$d2);
+  return 1;
 }
 
 
@@ -298,7 +303,7 @@ sub testPath { # test for path()
   $d1=~s/\n$//;
   $d2=~s/\n$//;
 
-  ok($d1,$d2);
+  return ($d1 eq $d2);
 }
 
 
@@ -325,8 +330,11 @@ sub testCompare {
 
   bug "\n - check compare results : ";
   my $res = testRes( \@pth_1_2, $waited_patch );
-  $res and bug "$res\n";
-  (!defined($res)) or return 0;
+  if ($res) {
+    bug "$res\n";
+    return 0;
+  }
+  return 1;
 
   bug "\n - check bords effect.";
   if (Dumper($a1) ne $d1) {
@@ -343,7 +351,7 @@ sub testCompare {
 
   if ($patch_test) {  ##  applyPatch() TEST
 
-    bug "\n - check applyPatch. ";
+    bug "\n - check applyPatch.\n";
 
     my $a1_patched = applyPatch($a1, @pth_1_2);
 
@@ -384,7 +392,7 @@ sub testCompare {
 ##############################################################################
 use strict;
 use Test;
-BEGIN { plan tests =>380};
+BEGIN { plan tests =>292};
 ##############################################################################
 
 
@@ -765,7 +773,6 @@ ok(testPathSearch( "array index 2",
 		   5
 		 ));
 
-
 ok(testPathSearch( "key 1",$ex,
 		   ['?@%','=', 3],
 		   [
@@ -855,7 +862,7 @@ ok(testSearch( 'type glob',
 	       {a=>3,b=>\*STDIN},
 	       ['?*'],
 	       1,
-	       [\*STDIN]
+	       [\*main::STDIN]
 	     ));
 
 local *a=[2,3,4];
@@ -977,7 +984,6 @@ ok(testSearch( "ref 5",
 	       [123]
 	     ));
 
-
 ok(testPathSearch( "Module Data::Dumper 0",
 		   new Data::Dumper(
 				    [\ 2,\ [3],{a=>\ 123},\ {},{nb=>\ undef}]
@@ -987,6 +993,8 @@ ok(testPathSearch( "Module Data::Dumper 0",
 		   1
 		 ));
 
+
+local($_);
 ok(testSearch( "Module ref Data::Dumper 1",
 	       (new Data::Dumper(
 				 [\ 2,\[3],{a=>\123},\{},{nb=>\ undef}]
@@ -1001,7 +1009,7 @@ my $dd=[\ 2,\ [3], new Data::Dumper([{a=>\ 123}]), \ {},{nb=>\ undef}];
 ok(testPathSearch( "Module ref 2",
 		   $dd,
 		   ['?%','$','=',sub {/\d+/}],
-		   [['@',2,'|','Data::Dumper','%','todump','@',0,'%','a','$','=',123]]
+		   ['@2|Data::Dumper%todump@0%a$=123']
 		 ));
 
 ok(testSearch( "Module ref 3",
@@ -1041,13 +1049,24 @@ ok(testSearch( "Module ref 6",
 
 
 ########### PBM pas moyen de match quoiquecesoitdedans
-package PKG_TEST;our $VAR_GLOB=87;sub new { return bless {a=>32};};1;
+package PKG_TEST;our $VAR_GLOB=87;sub new { return bless {a=>[32]};};1;
 
 package main;
 # warn Dumper(new PKG_TEST());
 
+my $mod = new PKG_TEST();
+
+ok(testTravel(" travel ",
+	      $mod,
+	      [
+	       '0 > |PKG_TEST%a : PKG_TEST',
+	       '1 > |PKG_TEST%a@0 : ARRAY',
+	       '2 > |PKG_TEST%a@0=32 : '
+	      ]
+	      ));
+
 ok(testSearch( "Module ref 7",
-	       [new PKG_TEST(),32],
+	       [$mod,32],
 	       ['=',32],
 	       -1,
 	       [32,32]
@@ -1301,13 +1320,24 @@ __DIFF
 #	     );
 
 #  This test : 
-  ok(testCompare( "Ref module 3",
+
+
+
+ 0 and ok(testCompare( "Ref module 3",
 		  [new Math::BigInt(5)],
 		  [new Math::BigInt(3)],
 
 		  ($^V and $^V lt v5.8.0)
 		  &&	       ['change(@0|Math::BigInt$,@0|Math::BigInt$)="+5"/=>"+3"']	
-		  ||             ['change(@0|Math::BigInt%value@0,@0|Math::BigInt%value@0)=5/=>3']
+		  ||           ['change(@0|Math::BigInt%value@0,@0|Math::BigInt%value@0)=5/=>3']
+		));
+
+  ok(testCompare( "Ref module 4",
+		  [new Data::Dumper([1])],
+		  [new Data::Dumper([2])],
+		  ($^V and $^V lt v5.8.0)
+		  &&	       ['change(@0|Data::Dumper$,@0|Data::Dumper$)="+1"/=>"+2"']	
+		  ||           ['change(@0|Data::Dumper%todump@0,@0|Data::Dumper%todump@0)=1/=>2']
 		));
 
   local *a=[2,3,4];
@@ -1560,7 +1590,6 @@ START_TEST_MODULE('Travel');
 o_complex(0);
 
 #############################################################################
-#o_debug(1);
 
 ok(testTravel(" 0 travellig through ",
 	      [\{a=>3,b=>sub{return 'test'}}],
@@ -1895,6 +1924,115 @@ foreach $chr (@special) {
 
 END_TEST_MODULE('special');
 
+
+
+  ##############################################################################
+ # Tests related to loop detection
+ ###############################################################################
+START_TEST_MODULE('loop');
+ ###
+###
+##
+#
+
+$SIG{ALRM} = sub { ok(0); exit(0);};
+
+foreach $cplx (0..1) {
+  o_complex($cplx);
+
+  my $a = { x => [2], b=>3 };
+  push(@{$a->{x}}, $a->{x});
+
+  my $b = { x => [1], b=>2 };
+  push(@{$b->{x}}, $b->{x});
+
+  alarm(1);
+  ok(testTravel(
+		"loop travel ",
+		$a,
+		[
+		 '0 > %b : HASH',
+		 '1 > %b=3 : ',
+		 '0 > %x : HASH',
+		 '1 > %x@0 : ARRAY',
+		 '2 > %x@0=2 : ',
+		 '1 > %x@1 : ARRAY',
+		 '2 > %x@1$loop : ARRAY'
+		]));
+  alarm(0);
+
+  alarm(1);
+  ok(testTravel(
+		"loop travel II",
+		$b,
+		[
+		 '0 > %b : HASH',
+		 '1 > %b=2 : ',
+		 '0 > %x : HASH',
+		 '1 > %x@0 : ARRAY',
+		 '2 > %x@0=1 : ',
+		 '1 > %x@1 : ARRAY',
+		 '2 > %x@1$loop : ARRAY'
+		]));
+  alarm(0);
+
+
+  alarm(1);
+
+  ok(testSearch("loop search",
+		$a,
+		['@',1],
+		1,
+		[[2,2]]
+  ));
+  alarm(0);
+
+  alarm(1);
+  ok(testCompare( "loop compare in Array", $a , $b,
+		  [
+		   'change(%b,%b)=3/=>2',
+		   'change(%x@0,%x@0)=2/=>1'
+		  ],
+		  1));
+  alarm(0);
+
+  $b->{c}=$b->{x}[1];
+  $b->{x}[2]=$b->{c};
+
+  alarm(1);
+  ok(testCompare( "loop compare in Array II", $a , $b,
+		  [
+		   'change(%b,%b)=3/=>2',
+		   'change(%x@0,%x@0)=2/=>1',
+		   'add(,%c)=[1,$t1,$t1]',
+		   'add(%x,%x@2)=[1,$t1,$t1]'
+		  ],
+		  1));
+  alarm(0);
+
+
+  $a = { x => [2], b=>3 };
+  $a->{b} = $a;
+
+  $b = { x => [1], b=>2 };
+  push(@{$b->{x}}, $b->{x});
+
+  alarm(1);
+  ok(testCompare( "loop compare in Hash", $a , $b,
+		  [
+		   'change(%b,%b)={"b"=>$t1,"x"=>[2]}/=>2',
+		   'change(%x@0,%x@0)=2/=>1',
+		   'add(%x,%x@1)=[1,$t1]'
+		  ],
+		  1));
+
+
+
+  alarm(0);
+
+}
+
+END_TEST_MODULE('loop');
 
 
    ###########################################################################

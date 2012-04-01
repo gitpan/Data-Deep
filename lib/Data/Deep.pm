@@ -154,7 +154,7 @@ See conversion function
 # General version and rules
 ##############################################################################
 use 5.004;
-$VERSION = '0.05';
+$VERSION = '0.06';
 #$| = 1;
 
 ##############################################################################
@@ -444,7 +444,7 @@ my $patchText=sub ($$$$$) {
   ($action eq 'change') and $patch .= '/=>';
 
   if (($action eq 'add') or ($action eq 'change')) {
-    $v2 = __d $v2;
+    $v2 = __d($v2);
     $v2 =~ s|/=>|\/\\054\>|g;
     $v2 =~ s/\s=>\s/=>/sg;
     $patch .= $v2;
@@ -650,7 +650,8 @@ depth    : how many upper node to return from the current match node
 my $path2eval__ = sub {
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
   my $first_eval = shift();
-  my $deepness = shift();
+  my $deepness = shift();  # [ 0.. N ] return N from root
+                           # [-N..-1]  return N stage from leaves
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
 
   my $evaled = $first_eval;
@@ -744,7 +745,26 @@ my $path2eval__ = sub {
   return $evaled;
 };
 
+my %loop_ref=();
+##############################################################################
+#{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
+sub loop_det($;@) {
+#{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
 
+  my $r = shift();
+  ref($r) or return 0;
+
+  $r = $r.' ';
+  #defined *$d1{SCALAR}
+
+  if (exists($loop_ref{$r})) {
+    debug "loop_det => LOOP".join('',@_) ;
+    return 1;
+  }
+
+  $loop_ref{$r}=1;
+  return 0;
+}
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -827,7 +847,7 @@ I<EX:>
 
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
   my $arr = wantarray();
-
+  @path or %loop_ref=();
 
   debug "travel()".($arr && ' return ARRAY ');
 
@@ -835,59 +855,53 @@ I<EX:>
   my $found=undef;
 
   my ($k,$res);
-  my %circular_ref=();
 
 
   #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
   my $ref_type = ref $where;
 
-  ######################################## !!!!! Circular reference cut
-  if (ref($where)) {
-    if (exists $circular_ref{$where}) {
-      debug ' loop for '.join('.',@path);
-      #push @path,'$loop('.$circular_ref{$m_path}.')';
-      return 1;
+
+  ######################################## !!!!! Modules type resolution
+#  if (index($ref_type,'::')!=-1) {
+  my ($realpack, $realtype, $id) =
+    (overload::StrVal($where) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
+  if ($realpack) {
+    my $y = undef;
+    if ($realtype eq 'SCALAR') {
+      $y=$$where;
     }
-    else { $circular_ref{$where}=$where }
+    elsif ($realtype eq 'HASH') {
+      $y=\%$where
+    }
+    elsif ($realtype eq 'ARRAY') {
+      $y=\@$where
+    }
+    else {
+      die $y
+    }
+    $where = $y;
+
+    push @path,'|',$ref_type;
+
+    $ref_type = $realtype;
+
+    debug "$ref_type -> ($realpack, $realtype, $id : ".ref($y).")";
   }
 
-    ######################################## !!!!! Modules type resolution
-    if (index($ref_type,'::')!=-1) {
-      my ($realpack, $realtype, $id) =
-	(overload::StrVal($where) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
+  debug "travel__ ( dom=",join('',@path), ' is ',$ref_type,")";
 
-      my $y = undef;
-      if ($realtype eq 'SCALAR') {
-	$y=$$where;
-      }
-      elsif ($realtype eq 'HASH') {
-	$y=\%$where
-      }
-      elsif ($realtype eq 'ARRAY') {
-	$y=\@$where
-      }
-      else {
-	die $y
-      }
-      $where = $y;
+  ######################################## !!!!! Loop detection
+  my @p;
 
-      push @path,'|',$ref_type;
-
-      $ref_type = $realtype;
-
-      #debug "$ref_type -> ($realpack, $realtype, $id : ".ref($y).")";
-    }
-
-    debug "travel__ ( dom=",join('',@path), ' is ',$ref_type,")";
-
-    # implement a HASH
-    #{
-    #   undef=> sub { },
-    #   HASH=>
-    # }->{$ref_type}();
+  if (loop_det($where)) {
+    @p = (@path, '$loop');
+    my $key = $isKey->(\@p);
+    $res = &$visitor($where, $depth , @p);
+    $arr and (push(@list, $res)) or $found=$res;
+  }
+  else {
     ######################################## !!!!! SCALAR TRAVEL
-    my @p;
     if (!$ref_type) {
       @p = (@path, '=', $where);
 
@@ -936,14 +950,12 @@ I<EX:>
         $res = &$visitor($where, $depth, @p );
         $arr and (push(@list, $res)) or $found=$res;
 
-	push(@list,travel(${ $where }, $visitor, $depth+1, @p ));
+	push(@list, travel( ${ $where }, $visitor, $depth+1, @p ));
       }
     else { # others types
       ######################################## !!!!! CODE TRAVEL
       if ($ref_type eq 'CODE') {
 	@p = (@path, '&');
-	
-
       }
       ######################################## !!!!! GLOB TRAVEL
       elsif ($ref_type eq 'GLOB') {
@@ -953,7 +965,7 @@ I<EX:>
       }
       ######################################## !!!!! MODULE TRAVEL
       else {
-	@p = (@path,'|', $ref_type);
+	die $ref_type;
       }
 
       my $key = $isKey->(\@p);
@@ -964,17 +976,18 @@ I<EX:>
       ######################################## !!!!! GLOB TRAVEL
       # cf IO::Handle or Symbol::gensym()
 
-
-      # TO REDESIGN as search
       if ($p[-2] eq '*') { # GLOB
 	for $k (qw(SCALAR ARRAY HASH)) {
 	  my $gval = *$where{$k};
-	  next unless defined $gval;
-	  next if $k eq "SCALAR" && ! defined $$gval;  # always there
+	  defined($gval) or next;
+	  next if ($k eq "SCALAR" && ! defined $$gval);  # always there
 	  return (@list,travel($gval, $visitor, $depth+1, @p));
 	}
       }
+
     }
+  }
+
   $arr and return @list;
   return $found;
 
@@ -1038,23 +1051,16 @@ EX:
   my @list;
   my $next = undef;
   my @p;
-  ######################################
 
-  @path or %circular_ref=();
+  ######################################## !!!!! Modules type resolution
   if ($ref_type) {
 
-    if (exists $circular_ref{$where}) {  ## !!!!! Circular reference cut
-      #warn ' loop for '.join('.',@path);
-      #return 1;
-    }
-    else { $circular_ref{$where}=$where }
+    #if (index($where,'::')!=-1) {  ## !!!!! MODULE SEARCH
 
-    if (index($where,'=')!=-1) {  ## !!!!! MODULE SEARCH
+    my ($realpack, $realtype, $id) =
+      (overload::StrVal($where) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
 
-      my ($realpack, $realtype, $id) =
-	(overload::StrVal($where) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
-
-      #(index($where,'=')!=-1) and
+    if ($realpack) {
       push @path, ('|', $ref_type);
 
       $ref_type = $realtype;
@@ -1063,10 +1069,17 @@ EX:
     }
 
 
-    if ($ref_type eq 'HASH') {  ## !!!!! HASH COMPARE
+    ######################################## !!!!! Loop detection
+    @path or %loop_ref=();
+
+    if (loop_det($where)) {
+      @p = (@path, '$loop');
+    }
+    ######################################## HASH Search
+    elsif ($ref_type eq 'HASH') {
       my $k;
       foreach $k (sort {$a cmp $b} keys(%{ $where })) {
-	my @p = (@path, '%', $k);
+	@p = (@path, '%', $k);
 	# warn "\n".join('.',@p).">HASH{$k} =".$where->{$k}.' (ref='.ref($where->{$k}).')';
 
 	my $key = $isKey->(\@p);
@@ -1081,10 +1094,11 @@ EX:
       }
       return @list;
     }
-    elsif ($ref_type eq 'ARRAY')  ## !!!!! ARRAY COMPARE
+    ######################################## HASH Search
+    elsif ($ref_type eq 'ARRAY')
       {
 	for my $i (0..$#{ $where }) {
-	  my @p = (@path, '@', $i);
+	  @p = (@path, '@', $i);
 	  # warn "\n".join('.',@p).">ARRAY[$i] =".$where->[$i].' (ref='.ref($where->[$i]).')';
 	  # warn "\nARRAY[$i] (".join('.',@p).'='.$where->[$i].")";
 
@@ -1100,14 +1114,17 @@ EX:
 	}
 	return @list;
       }
-    elsif ($ref_type eq 'REF' or $ref_type eq 'SCALAR') { ## !!!!! REFERENCE COMPARE
+    ######################################## REF Search
+    elsif ($ref_type eq 'REF' or $ref_type eq 'SCALAR') {
       @p = (@path, '$');
       $next = ${ $where };
     }
-    elsif ($ref_type eq 'CODE') { ## !!!!! CODE SEARCH
+    ######################################## CODE Search
+    elsif ($ref_type eq 'CODE') {
       @p = (@path, '&');
     }
-    elsif ($ref_type eq 'GLOB') { ## !!!!! GLOB SEARCH
+    ######################################## GLOB Search
+    elsif ($ref_type eq 'GLOB') {
       my $name = $$where;
       $name=~s/^\*//;
       @p = (@path, '*',$name);
@@ -1200,7 +1217,7 @@ EX:
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
 
-  debug "path( $dom, $#paths patch, $father_nb)";
+  debug "path( \$dom, $#paths patch, $father_nb)";
 
   my @nodes;
 
@@ -1210,15 +1227,14 @@ EX:
     # perl evaluation of the dom path
     my $e = $path2eval__->('$dom', $father_nb, @path);
     my $r = eval $e;
-    #debug $e.' : '.Dumper($r);
+    debug $dom;
+    debug $e.' evaluated to '.Dumper($r);
     die __FILE__.' : path() '.$e.' : '.$@ if ($@);
     push @nodes,$r
   }
   return shift @nodes unless (wantarray());
   return @nodes;
 }
-
-
 
 ##############################################################################
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
@@ -1228,12 +1244,14 @@ sub compare {
   # ############ ret : 0 if equal / 1 else
   my $d1 = shift();
   my $d2 = shift();
+
   my (@p1,@p2,$do_resolv_patch);
   if (@_) {
     @p1 = @{$_[0]};
     @p2 = @{$_[1]};
   }
   else {
+    %loop_ref=();
     # equiv TEST on each function call: if ($CFG->{o_complex} and ($#a1==-1 and $#a2==-1)) {
     $CFG->{o_complex} and $do_resolv_patch=1;
   }
@@ -1322,253 +1340,261 @@ EX:
     return @patch
   }
 
-  #  warn "\nComparing ORIG(".join('.',@p1,'=',ref($d1)||$d1).") <> DEST(".join('.',@p2,'=',ref($d2)||$d2).")\n";
+  ###############################################################################
+  debug "\nComparing ORIG(".join('.',@p1,'=',ref($d1)||$d1).") <> DEST(".join('.',@p2,'=',ref($d2)||$d2).")\n";
 
-  my %circular_ref=();
+  # ############ ret : 0 if equal / 1 else
+  my @msg=();
 
-    ######################################## !!!!! FEATURE : Circular reference cut
-    if (0 and ref($d1)) {
-      if (exists $circular_ref{$d1}) {
-	debug "loop in ".join('',@p1) ;
-	return ()
-      }
-      else{
-	$circular_ref{$d1}=$d1
-      }
-    }
+  ######################################## !!!!! Type resolution
+  my $ref_type = ref $d1;
 
-    # ############ ret : 0 if equal / 1 else
-    my @msg=();
+  if ($ref_type) {
 
-    ######################################## !!!!! Type resolution
-    my $ref_type = ref $d1;
+    ($ref_type ne ref($d2))
+      and 
+	return ( $patchDOM->('change', \@p1,\@p2, $d1,$d2) );
 
-    if ($ref_type) {
+    #if (index($ref_type,'::')!=-1) {
 
-      ($ref_type ne ref($d2))
-	and 
-	  return ( $patchDOM->('change', \@p1,\@p2, $d1,$d2) );
+    my ($realpack, $realtype, $id) =
+      (overload::StrVal($d1) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
 
-      if (index($ref_type,'::')!=-1) {
-	my ($realpack, $realtype, $id) =
-	  (overload::StrVal($d1) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
+    if ($realpack) {
+      my ($realpack2, $realtype2, $id2) =
+	(overload::StrVal($d2) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
 
-	my ($realpack2, $realtype2, $id2) =
-	  (overload::StrVal($d2) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
+      ($realtype ne $realtype2)
+	and
+	  push @msg, $patchDOM->('change', \@p1 ,\@p2 , $realtype ,$realtype2);
 
-	($realtype ne $realtype2)
-	  and
-	    push @msg, $patchDOM->('change', \@p1 ,\@p2 , $realtype ,$realtype2);
-
-	push @p1, '|',$ref_type;
-	push @p2, '|',$ref_type;
+      push @p1, '|',$ref_type;
+      push @p2, '|',$ref_type;
 	
-	debug "$ref_type -> ($realpack, $realtype, $id : $ref_type)";
+      debug "$ref_type -> ($realpack, $realtype, $id : $ref_type)";
 
-	$ref_type = $realtype;
-      }
+      $ref_type = $realtype;
+    }
+  }
+
+  ######################################## !!!!! GOT THE KEY
+  my $key = $isKey->(\@p1);
+  if (defined $key) {
+    my $k= $CFG->{o_key}{$key} or die 'internal key error '.$key.' not found !';
+
+    my $nb_occ=((exists $k->{occ})?$k->{occ}:undef);
+    $nb_occ=1;
+
+    # To retrieve from keys
+    #    my @path1 = search($d1, ['/',$key], $nb_occ);
+    #    my @path2 = search($d2, ['/',$key], $nb_occ);
+    # warn Dumper({path1=> [@path1],     path2=> [@path2]});
+
+    my $key2 = $isKey->(\@p2);
+    if (!defined $key2 or $key ne $key2) {
+      #warn "### search for &$key in ".join('',@p2);<>;
+      #@path2 or return ($patchDOM->('remove', \@p1,\@p2 , undef ,undef));
+
+      # @p2 = @{shift @path2};
+    }
+    debug "\nkey compare {{ ".join('.',@p1).' Vs '.join('.',@p2).' }}';
+
+    (join('',@p1) ne join('',@p2))
+      and 
+	push @msg, $patchDOM->('move', \@p1,\@p2);
+
+    # option check integrity
+    if (defined $nb_occ and @p1) {
+      #push @msg, $patchDOM->('error', \@p1,\@p2);
     }
 
-    ######################################## !!!!! GOT THE KEY
-    my $key = $isKey->(\@p1);
-    if (defined $key) {
-      my $k= $CFG->{o_key}{$key} or die 'internal key error '.$key.' not found !';
+    # Depth return (key cfg)
+    my $depth = (exists $k->{depth} && $k->{depth} || 0);
 
-      my $nb_occ=((exists $k->{occ})?$k->{occ}:undef);
-      $nb_occ=1;
+    #my @nodes = path($d1, @path1, $depth)
+    #  or die "Could'nt find this path ".join('.',map {join('',@{$_})} @path1).' ! ';
 
-      my $key2 = $isKey->(\@p2);
-      if (!defined $key2 or $key ne $key2) {
-	my @paths = search($d2,['/',$key],$nb_occ);
+    #my @nodes2 = path($d2, @path2, $depth)
+    #  or die "Could'nt find this path ".join('.',map {join('',@{$_})} @path2).' ! ';
 
-	#warn "### search for &$key in ".join('',@p2);<>;
-	@paths
-	  or return ($patchDOM->('remove', \@p1,\@p2 , undef ,undef));
-	@p2 = @{shift @paths};
+    push @msg, compare($d1, $d2,\@p1,\@p2);
+
+    $do_resolv_patch or return @msg;
+    return resolve_patch(@msg);
+  }
+
+  ######################################## !!!!! SCALAR COMPARE
+  if (!$ref_type)
+    {
+      ($d1 ne $d2) and return ($patchDOM->('change', \@p1,\@p2, $d1,$d2) );
+      return ();
+    }
+  ######################################## !!!!! HASH COMPARE
+  elsif ($ref_type eq 'HASH')
+    {
+      my (%seen,$k);
+
+      foreach $k (sort {$a cmp $b}
+		  keys(%{ $d1 }))
+	{
+	  $seen{$k}=1;
+
+	  if (exists $d2->{$k}) {
+
+	    loop_det($d1->{$k},@p1) and next;
+
+	    push @msg,
+	      compare( $d1->{$k},
+		       $d2->{$k},
+		       [@p1, '%',$k ],
+		       [@p2, '%',$k ],
+		     );
+	  } else {
+	    push @msg,$patchDOM->('remove', [@p1, '%', $k ] ,\@p2 , $d1->{$k} ,undef)
+	  }
+
+	}#foreach($d1)
+
+      foreach $k (sort {$a cmp $b} keys(%{ $d2 })) {
+	next if exists $seen{$k};
+
+	my $v = $d2->{$k};
+	push @msg,$patchDOM->('add', \@p1, [@p2, '%', $k ], undef, $v)
       }
-      debug "\nkey compare {{ p1:".join('',@p1).' p2:'.join('',@p2).' ';
-
-      push @msg, $patchDOM->('move', \@p1,\@p2)
-	if (join('',@p1) ne join('',@p2));
-
-      # option check integrity
-      if (defined $nb_occ and @p1) {
-	#push @msg, $patchDOM->('error', \@p1,\@p2);
-      }
-
-      # Depth return (key cfg)
-      my $depth = (exists $k->{depth} && $k->{depth} || 0);
-
-      my @nodes = path($d1, [@p1], $depth)
-	or die "Could'nt find this path ".join('.',map {join('',@{$_})} @p1).' ! ';
-
-      my @nodes2 = path($d2, [@p2], $depth)
-	or die "Could'nt find this path ".join('.',map {join('',@{$_})} @p2).' ! ';
-
-      my $n1 = shift @nodes;
-      my $n2 = shift @nodes2;
-
-      push @msg, compare($n1, $n2,\@p1,\@p2);
 
       $do_resolv_patch or return @msg;
       return resolve_patch(@msg);
     }
+  elsif ($ref_type eq 'ARRAY')
+    {
+      ######################################## !!!!! ARRAY COMPARE (not complex mode)
 
-    ######################################## !!!!! SCALAR COMPARE
-    if (!$ref_type)
-      {
-	($d1 ne $d2) and return ($patchDOM->('change', \@p1,\@p2, $d1,$d2) );
-	return ();
-      }
-    ######################################## !!!!! HASH COMPARE
-    elsif ($ref_type eq 'HASH')
-      {
-	my (%seen,$k);
+      unless ($CFG->{o_complex}) {
 
-	foreach $k (sort {$a cmp $b}
-		       keys(%{ $d1 }))
-	  {
-	    $seen{$k}=1;
+	my $min = $#{$d1};
+	$min = $#{$d2} if ($#{$d2}<$min); # min ($#{$d1},$#{$d2})
 
-	    if (exists $d2->{$k}) {
-	      push @msg,
-		compare( $d1->{$k},
-			 $d2->{$k},
-			 [@p1, '%',$k ],
-			 [@p2, '%',$k ],
-		       );
-	    } else {
-	      push @msg,$patchDOM->('remove', [@p1, '%', $k ] ,\@p2 , $d1->{$k} ,undef)
-	    }
+	my $i;
+	foreach $i (0..$min) {
 
-	}#foreach($d1)
+	  loop_det($d1->[$i], @p1)
+	    and
+	      next;
 
-	foreach $k (sort {$a cmp $b} keys(%{ $d2 })) {
-	  next if exists $seen{$k};
-
-	  my $v = $d2->{$k};
-	  push @msg,$patchDOM->('add', \@p1, [@p2, '%', $k ], undef, $v)
+	  push @msg,
+	    compare( $d1->[$i], $d2->[$i], [@p1, '@',$i], [@p2, '@',$i]);
 	}
 
-	$do_resolv_patch or return @msg;
-	return resolve_patch(@msg);
-      }
-    elsif ($ref_type eq 'ARRAY')
-      {
-
-	######################################## !!!!! ARRAY COMPARE (not complex mode)
-
-	unless ($CFG->{o_complex}) {
-
-	  my $min = $#{$d1};
-	  $min = $#{$d2} if ($#{$d2}<$min); # min ($#{$d1},$#{$d2})
-
-	  my $i;
-	  foreach $i (0..$min) {
-	    push @msg,
-	      compare( $d1->[$i], $d2->[$i], [@p1, '@',$i], [@p2, '@',$i]);
-	  }
-
-	  foreach $i ($min+1..$#{$d1}) { # $d1 is bigger
-	    # silent just for complexe search mode
-	    push @msg,$patchDOM->('remove', [@p1, '@', $i ], \@p2 ,$d1->[$i], undef)
-	  }
-	  foreach $i ($#{$d1}+1..$#{$d2}) { # d2 is bigger
-	    push @msg,$patchDOM->('add', \@p1, [@p2, '@', $i ], undef, $d2->[$i])
-	  }
-	  return @msg;
+	foreach $i ($min+1..$#{$d1}) { # $d1 is bigger
+	  # silent just for complexe search mode
+	  push @msg,$patchDOM->('remove', [@p1, '@', $i ], \@p2 ,$d1->[$i], undef)
 	}
+	foreach $i ($#{$d1}+1..$#{$d2}) { # d2 is bigger
+	  push @msg,$patchDOM->('add', \@p1, [@p2, '@', $i ], undef, $d2->[$i])
+	}
+	return @msg;
+      }
 
-	######################################## !!!!! ARRAY COMPARE (in complex mode)
-	my @seen_src;
-	my @seen_dst;
-	my @res_Eq;
-	# perhaps not on the same index (search in the dest @)
-	my $i; 
-      ARRAY_CPLX:
-	foreach $i (0..$#{$d1}) {
-	  my $val1 = $d1->[$i];
+      ######################################## !!!!! ARRAY COMPARE (in complex mode)
+      my @seen_src;
+      my @seen_dst;
+      my @res_Eq;
+      # perhaps not on the same index (search in the dest @)
+      my $i; 
+    ARRAY_CPLX:
+      foreach $i (0..$#{$d1}) {
+	my $val1 = $d1->[$i];
+	
+	#print "\n SAR($i) {";
+	#if ($i<$#{$d2}) {
+	if (exists $d2->[$i]) {
+	  my @res;
 
-	  #print "\n SAR($i) {";
-	  #if ($i<$#{$d2}) {
-	  if (exists $d2->[$i]) {
-	    my @res = compare($val1,
-				 $d2->[$i ],
-				 [@p1, '@',$i ],
-				 [@p2, '@',$i ]);
-
-	    if (@res) {	$res_Eq[$i] = [@res]	    }   # (*)
-	    else
-	      {
-		$seen_src[$i]=$i;
-		$seen_dst[$i]=$i;
-		next ARRAY_CPLX;
-	      }
-	  }
-	  my $j;
-	  foreach $j (0..$#{$d2}) {  #print " -> $j ";
-	    next if ($i==$j);
-	    next if (defined($seen_dst[$j]));
-
-	    unless (compare( $val1,
-			     $d2->[$j],
+	  loop_det($val1, @p1)
+	    or
+	      @res = compare($val1,
+			     $d2->[$i],
 			     [@p1, '@',$i ],
-			     [@p2, '@',$j ]))
-	      {  #print " (found) ";
+			     [@p2, '@',$i ]);
 
-		$seen_dst[$j] = 1;
-		$seen_src[$i] = $patchDOM->('move', [@p1, '@', $i ], [@p2, '@', $j ]);
-		next ARRAY_CPLX;
-	      }
-	  }
+	  if (@res) {	$res_Eq[$i] = [@res]	    }   # (*)
+	  else
+	    {
+	      $seen_src[$i]=$i;
+	      $seen_dst[$i]=$i;
+	      next ARRAY_CPLX;
+	    }
+	}
+	my $j;
+	foreach $j (0..$#{$d2}) {  #print " -> $j ";
+	  next if ($i==$j);
+	  next if (defined($seen_dst[$j]));
 
-	  $seen_src[$i] = $patchDOM->('remove', [@p1, '@', $i ], \@p2, $val1, undef)
-	    unless (defined  $seen_src[$i]);
+	  unless (compare( $val1,
+			   $d2->[$j],
+			   [@p1, '@',$i ],
+			   [@p2, '@',$j ]))
+	    {  #print " (found) ";
 
-	  #print " }SAR($i)";
-	} # for $d1 (0..$min)
-
-	### destination table $d2 is bigger
-	##
-	foreach $i (0..$#{$d2}) {
-	  next if(defined $seen_dst[$i]);
-	  $seen_dst[$i] = $patchDOM->('add', \@p1, [@p2, '@', $i ], undef, $d2->[$i])
+	      $seen_dst[$j] = 1;
+	      $seen_src[$i] = $patchDOM->('move', [@p1, '@', $i ], [@p2, '@', $j ]);
+	      next ARRAY_CPLX;
+	    }
 	}
 
-	my $max = $#seen_dst;
-	$max = $#seen_src if($#seen_src>$max);
-	foreach (0..$max) { ## Mind processor powered !!
-	  my $src = $seen_src[$_];
-	  my $dst = $seen_dst[$_];
+	$seen_src[$i] = $patchDOM->('remove', [@p1, '@', $i ], \@p2, $val1, undef)
+	  unless (defined  $seen_src[$i]);
 
-	  if (ref($res_Eq[$_]) and # differences on the same index (*)
-	      ref($src) and ref($dst)) {
+	#print " }SAR($i)";
+      } # for $d1 (0..$min)
 
-	    #print "\n src/dst : ".domPatch2TEXT($src)."/ ".domPatch2TEXT($dst)."\n";
+      ### destination table $d2 is bigger
+      ##
+      foreach $i (0..$#{$d2}) {
+	defined($seen_dst[$i]) and next;
+	$seen_dst[$i] = $patchDOM->('add', \@p1, [@p2, '@', $i ], undef, $d2->[$i])
+      }
 
-	    # remove(@2,)=<val1> add(,@2)=<val2 => <patch val1 val2>
-	    ($src->{action} eq 'remove') and
-	      ($dst->{action} eq 'add') and
-		(push @msg, @{ $res_Eq[$_] })
-		  and next;
-	  }
-	  (ref $src) and push @msg,$src;
-	  (ref $dst) and push @msg,$dst;
+      my $max = $#seen_dst;
+
+      ($#seen_src>$max) and $max = $#seen_src;
+
+      foreach (0..$max) {
+	my $src = $seen_src[$_];
+	my $dst = $seen_dst[$_];
+
+	if (ref($res_Eq[$_]) and # differences on the same index (*)
+	    ref($src) and ref($dst)) {
+
+	  #print "\n src/dst : ".domPatch2TEXT($src)."/ ".domPatch2TEXT($dst)."\n";
+
+	  # remove(@2,)=<val1> add(,@2)=<val2 => <patch val1 val2>
+	  ($src->{action} eq 'remove') and
+	    ($dst->{action} eq 'add') and
+	      (push @msg, @{ $res_Eq[$_] })
+		and next;
 	}
+	(ref $src) and push @msg,$src;
+	(ref $dst) and push @msg,$dst;
+      }
 
-	$do_resolv_patch or return @msg;
-	return resolve_patch(@msg);
+      $do_resolv_patch or return @msg;
+      return resolve_patch(@msg);
+    }
+  ######################################## !!!!! REF COMPARE
+  elsif ($ref_type eq 'REF' or $ref_type eq 'SCALAR')
+    {
+      if (loop_det($$d1, @p1)) {
       }
-    ######################################## !!!!! REF COMPARE
-    elsif ($ref_type eq 'REF' or $ref_type eq 'SCALAR')
-      {
-	my @msg = ( compare($$d1, $$d2, [@p1, '$'], [@p2, '$' ]));
-	$do_resolv_patch or return @msg;
-	return resolve_patch(@msg);
+      else {
+	@msg = ( compare($$d1, $$d2, [@p1, '$'], [@p2, '$' ]));
       }
-    ######################################## !!!!! GLOBAL REF COMPARE
-    elsif ($ref_type eq 'GLOB')
-      {
+      $do_resolv_patch or return @msg;
+      return resolve_patch(@msg);
+    }
+  ######################################## !!!!! GLOBAL REF COMPARE
+  elsif ($ref_type eq 'GLOB')
+    {
       my $name1=$$d1;
       $name1=~s/^\*//;
       my $name2=$$d2;
@@ -1590,8 +1616,12 @@ EX:
       elsif (defined*$d1{HASH}) {
 	$g_d1 = *$d1{HASH};
       }
+      elsif (defined*$d1{GLOB}) {
+	$g_d1 = *$d1{GLOB};
+	loop_det($g_d1, @p1) and return ();
+      }
       else {
-	die $d1;
+	die $name1;
       }
 
       if (defined *$d2{SCALAR} and defined(${*$d2{SCALAR}})) {
@@ -1603,29 +1633,30 @@ EX:
       elsif (defined*$d2{HASH}) {
 	$g_d2 = *$d2{HASH};
       }
+      elsif (defined*$d2{GLOB}) {
+	$g_d2 = *$d2{GLOB};
+      }
       else {
-	die $d2;
+	die $name2;
       }
 
       my @msg = ( compare($g_d1, $g_d2, \@p1, \@p2));
 
       $do_resolv_patch or return @msg;
       return resolve_patch(@msg);
-    }
-    ######################################## !!!!! CODE REF COMPARE
-    elsif ($ref_type eq 'CODE') {      # cannot compare this type
 
-      #push @msg,$patchDOM->('change', \@p1, [@p2, '@', $i ], undef, $d2->[$i])
-      return ();
     }
-    ######################################## !!!!! What's that ?
-    else {
-      die 'unknown type /'.$ref_type.'/ '.join('',@p1);
-    }
+  ######################################## !!!!! CODE REF COMPARE
+  elsif ($ref_type eq 'CODE') {      # cannot compare this type
+
+    #push @msg,$patchDOM->('change', \@p1, [@p2, '@', $i ], undef, $d2->[$i])
     return ();
-
-
-
+  }
+  ######################################## !!!!! What's that ?
+  else {
+    die 'unknown type /'.$ref_type.'/ '.join('',@p1);
+  }
+  return ();
 }
 
 ##############################################################################
@@ -1654,22 +1685,31 @@ EX:
 =cut
 
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
-  debug 'applyPatch('.__d($dom).','.join(',',map({__d $_} @_)).') :';
+  debug 'applyPatch('.__d($dom).') :';
   my (@remove,@add,@change,@move);
 
   while (@_) { # ordering the patch operations
     my $p = pop;
-    ($p)=textPatch2DOM($p) unless (ref($p) eq 'HASH');
+
+    (ref($p) eq 'HASH')
+      or ($p)=textPatch2DOM($p);
+    debug(domPatch2TEXT($p));
 
     eval 'push @'.$p->{action}.', $p;';
-    die 'applyPatch() : '.$@ if ($@);
+    $@ and die 'applyPatch() : '.$@;
   }
 
   my ($d,$t);
-  my $patch_eval='$d='.__d($dom).';';
+  local $Data::Dumper::Purity=1;
 
-  $patch_eval .= '$t='.__d($dom).";\n";
+  my ($d1,$d2,$d3,$d4,$d5);
+  my ($t1,$t2,$t3,$t4,$t5);
 
+  $Data::Dumper::Varname='d';
+  my $patch_eval='$d='.Dumper($dom).";\n";
+
+  $Data::Dumper::Varname='t';
+  $patch_eval .= '$t='.Dumper($dom).";\n";
 
   my $post_eval;
 
@@ -1738,9 +1778,11 @@ EX:
 
   my $res = eval($patch_eval);
 
-  #warn "\nEval=>> $patch_eval >>=".__d($res).".\n";
+  debug "\nEval=>> $patch_eval >>=".__d($res).".\n";
 
-  die 'applyPatch() : '.$patch_eval.$@ if ($@);
+  $@
+    and
+      die 'applyPatch() : '.$patch_eval.$@;
 
   return $res
 }
