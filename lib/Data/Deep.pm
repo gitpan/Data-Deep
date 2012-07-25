@@ -1,8 +1,8 @@
-package ######################################################################
+ ######################################################################
 #############################################################################
-  Data::Deep
+package Data::Deep;
 ##############################################################################
-  ;# Ultimate tool for Perl data manipulation
+  # Ultimate tool for Perl data manipulation
   ############################################################################
  ### Deep.pm
   ############################################################################
@@ -154,7 +154,7 @@ See conversion function
 # General version and rules
 ##############################################################################
 use 5.004;
-$VERSION = '0.06';
+$VERSION = '0.07';
 #$| = 1;
 
 ##############################################################################
@@ -461,7 +461,7 @@ my $patchText=sub ($$$$$) {
 my $matchPath = sub {
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
   my @pattern=@{shift()};  # to match
-  my @where=@{shift()};    # current path
+  my @where=@_;    # current path
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
   #warn 'matchPath('.join(' ',@where).' , '.join(' ',@pattern).')';
@@ -576,15 +576,16 @@ sub o_key {
 
 ##############################################################################
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
-my $isKey = sub ($) {
+my $isKey = sub {
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
-  my $path=shift();
+  my @path=@_;
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
-  (defined $CFG->{o_key}) or return undef;
+  (defined $CFG->{o_key}) or return @path;
 
-  my $sz=@{$path};
-  # print "\n###".join('.',@{$path}).' '.join('|',keys %{$CFG->{o_key}});    <>;
+  my $sz_path = scalar(@path);
+
+  # debug "\n###".join('.',@{$path}).' '.join('|',keys %{$CFG->{o_key}});    <>;
 
   my %keys=%{$CFG->{o_key}};
 
@@ -595,21 +596,22 @@ my $isKey = sub ($) {
 		 } keys %keys)
     {
       my $match = $keys{$k}{regexp};
-      #warn "\n=$k on ".join('',@{$path});
+      #warn "\n=$k on ".join('',@path);
 
-      my $min_index = $matchPath->($match,$path);
+      my $min_index = $matchPath->($match, @path);
 
       if (defined $min_index) {
-	debug " -> key($k -> ".join(' ',@{$match}).")  = $min_index\n";
-	# replace the (matched key expression) by (<key name>,<value>)
-	#print "before= (".join('.',@{$path}).") [$min_index,$#{$match}]\n";
+	# debug " -> key($k -> ".join(' ',@{$match}).")  = $min_index\n";
 
-	splice @{$path},$min_index,scalar(@{$path}),'/',$k;
-	#print "after = (".join('.',@{$path}).")\n";
-	return $k;
+	# replace the (matched key expression) by ('/' , <key name>)
+
+	splice @path, $min_index, $sz_path, '/',$k;
+
+	return @path;
       }
     }
-  return undef;
+
+  return @path;
 };
 
 
@@ -806,7 +808,7 @@ sub visitor_dumper { # exemple of visitor
 #    my $depth = shift;
 #    my @cur_path = @_;
 
-#    if (defined $matchPath->($pattern, \@cur_path)) {
+#    if (defined $matchPath->($pattern, @cur_path)) {
 #	    defined($nb_occ) and (--$nb_occ<1) and die 'STOP';
 
 #            return $node;
@@ -849,7 +851,7 @@ I<EX:>
   my $arr = wantarray();
   @path or %loop_ref=();
 
-  debug "travel()".($arr && ' return ARRAY ');
+  #debug "travel()".($arr && ' return ARRAY ');
 
   my @list;
   my $found=undef;
@@ -866,7 +868,9 @@ I<EX:>
 #  if (index($ref_type,'::')!=-1) {
   my ($realpack, $realtype, $id) =
     (overload::StrVal($where) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
+
   if ($realpack) {
+
     my $y = undef;
     if ($realtype eq 'SCALAR') {
       $y=$$where;
@@ -882,11 +886,11 @@ I<EX:>
     }
     $where = $y;
 
+    #debug ref($y)." = $realpack -> real $realtype, $id";
+
     push @path,'|',$ref_type;
 
     $ref_type = $realtype;
-
-    debug "$ref_type -> ($realpack, $realtype, $id : ".ref($y).")";
   }
 
   debug "travel__ ( dom=",join('',@path), ' is ',$ref_type,")";
@@ -895,18 +899,14 @@ I<EX:>
   my @p;
 
   if (loop_det($where)) {
-    @p = (@path, '$loop');
-    my $key = $isKey->(\@p);
+    @p = $isKey->(@path, '$loop');
     $res = &$visitor($where, $depth , @p);
     $arr and (push(@list, $res)) or $found=$res;
   }
   else {
     ######################################## !!!!! SCALAR TRAVEL
     if (!$ref_type) {
-      @p = (@path, '=', $where);
-
-      my $key = $isKey->(\@p);
-
+      @p = $isKey->(@path, '=', $where);
       $res = &$visitor($where, $depth , @p);
       $arr and (push(@list, $res)) or $found=$res;
 
@@ -916,36 +916,30 @@ I<EX:>
       {
 	my $k;
 	foreach $k (sort {$a cmp $b} keys(%{ $where })) {
-	  my @p = (@path, '%', $k);
-	  my $key = $isKey->(\@p);
+	  @p = $isKey->(@path, '%', $k);
 
           $res = &$visitor($where, $depth, @p);
           $arr and (push(@list, $res)) or $found=$res;
 
-	  push(@list,travel($where->{$k},$visitor,$depth+1, @p));
+	  push(@list, travel($where->{$k},$visitor,$depth+1, @p));
 	}
       }
     ######################################## !!!!! ARRAY TRAVEL
     elsif ($ref_type eq 'ARRAY')
       {
 	for my $i (0..$#{ $where }) {
-	  my @p = (@path, '@', $i);
 	  #print "\narray  $i (".$where->[$i].','.join('.',@p).")\n" if (join('_',@p)=~ /\@_1_\%_g_/);
-
-	  my $key = $isKey->(\@p);
-
+	  @p = $isKey->(@path, '@', $i);
           $res = &$visitor($where, $depth, @p);
           $arr and (push(@list, $res)) or $found=$res;
 
-	  push(@list,travel($where->[$i],$visitor,$depth+1, @p));
+	  push(@list, travel($where->[$i],$visitor,$depth+1, @p));
 	}
       }
     ######################################## !!!!! REFERENCE TRAVEL
     elsif ($ref_type eq 'REF' or $ref_type eq 'SCALAR')
       {
-	@p = (@path, '$');
-
-	my $key = $isKey->(\@p);
+	 @p = $isKey->(@path, '$');
 
         $res = &$visitor($where, $depth, @p );
         $arr and (push(@list, $res)) or $found=$res;
@@ -955,20 +949,18 @@ I<EX:>
     else { # others types
       ######################################## !!!!! CODE TRAVEL
       if ($ref_type eq 'CODE') {
-	@p = (@path, '&');
+	@p = $isKey->(@path, '&');
       }
       ######################################## !!!!! GLOB TRAVEL
       elsif ($ref_type eq 'GLOB') {
 	my $name=$$where;
 	$name=~s/b^\*//;
-	@p = (@path, '*',$name);
+	@p = $isKey->(@path, '*', $name);
       }
       ######################################## !!!!! MODULE TRAVEL
       else {
 	die $ref_type;
       }
-
-      my $key = $isKey->(\@p);
 
       $res = &$visitor($where, $depth, @p );
       $arr and (push(@list, $res)) or $found=$res;
@@ -984,13 +976,11 @@ I<EX:>
 	  return (@list,travel($gval, $visitor, $depth+1, @p));
 	}
       }
-
     }
   }
 
   $arr and return @list;
   return $found;
-
 }
 
 
@@ -1079,11 +1069,10 @@ EX:
     elsif ($ref_type eq 'HASH') {
       my $k;
       foreach $k (sort {$a cmp $b} keys(%{ $where })) {
-	@p = (@path, '%', $k);
+	@p = $isKey->(@path, '%', $k);
 	# warn "\n".join('.',@p).">HASH{$k} =".$where->{$k}.' (ref='.ref($where->{$k}).')';
 
-	my $key = $isKey->(\@p);
-	if (defined $matchPath->($pattern, \@p)) {
+	if (defined $matchPath->($pattern, @p)) {
 	  push @list,[@p];
 	  defined($nb_occ) and (--$nb_occ<1) and last;
 	}
@@ -1098,12 +1087,9 @@ EX:
     elsif ($ref_type eq 'ARRAY')
       {
 	for my $i (0..$#{ $where }) {
-	  @p = (@path, '@', $i);
-	  # warn "\n".join('.',@p).">ARRAY[$i] =".$where->[$i].' (ref='.ref($where->[$i]).')';
-	  # warn "\nARRAY[$i] (".join('.',@p).'='.$where->[$i].")";
+	  @p = $isKey->(@path, '@', $i);
 
-	  my $key = $isKey->(\@p);
-	  if (defined $matchPath->($pattern, \@p)) {
+	  if (defined $matchPath->($pattern, @p)) {
 	    push @list,[@p];
 	    defined($nb_occ) and (--$nb_occ<1) and last;
 	  }
@@ -1116,18 +1102,18 @@ EX:
       }
     ######################################## REF Search
     elsif ($ref_type eq 'REF' or $ref_type eq 'SCALAR') {
-      @p = (@path, '$');
+      @p = $isKey->(@path, '$');
       $next = ${ $where };
     }
     ######################################## CODE Search
     elsif ($ref_type eq 'CODE') {
-      @p = (@path, '&');
+      @p = $isKey->(@path, '&');
     }
     ######################################## GLOB Search
     elsif ($ref_type eq 'GLOB') {
       my $name = $$where;
       $name=~s/^\*//;
-      @p = (@path, '*',$name);
+      @p = $isKey->(@path, '*',$name);
       if (defined *$where{SCALAR} and defined(${*$where{SCALAR}})) {
 	$next = *$where{SCALAR};
       }
@@ -1137,18 +1123,15 @@ EX:
       elsif (defined *$where{HASH}) {
 	$next = *$where{HASH};
       }
-      #warn join('',@p).'> '.ref($next);
     }
   }
   ######################################
-  else { ## !!!!! SCALAR COMPARE
-    @p = (@path, '=', $where);
-    #warn 'not ref : '.join('',@p);
+  else { ## !!!!! SCALAR Search
+    @p = $isKey->(@path, '=', $where);
   }
   ######################################
 
-  my $key = $isKey->(\@p);
-  if (defined $matchPath->($pattern, \@p)) {
+  if (defined $matchPath->($pattern, @p)) {
     push @list,[@p];
     defined($nb_occ) and --$nb_occ;
   }
@@ -1377,47 +1360,53 @@ EX:
     }
   }
 
-  ######################################## !!!!! GOT THE KEY
-  my $key = $isKey->(\@p1);
-  if (defined $key) {
-    my $k= $CFG->{o_key}{$key} or die 'internal key error '.$key.' not found !';
+  ######################################## !!!!! KEY COMPARE
+  @p1 = $isKey->(@p1);
+  @p2 = $isKey->(@p2);
 
-    my $nb_occ=((exists $k->{occ})?$k->{occ}:undef);
-    $nb_occ=1;
+  # DISABLED AND NOT TESTED : very complex use of key for deep comparing
 
-    # To retrieve from keys
-    #    my @path1 = search($d1, ['/',$key], $nb_occ);
-    #    my @path2 = search($d2, ['/',$key], $nb_occ);
-    # warn Dumper({path1=> [@path1],     path2=> [@path2]});
+  if (0 and $CFG->{o_key}) {
 
-    my $key2 = $isKey->(\@p2);
-    if (!defined $key2 or $key ne $key2) {
-      #warn "### search for &$key in ".join('',@p2);<>;
+    # TODO : retrieve the keyname from last isKey call
+    my $key1;
+    my $key2;
+
+    my $k = $CFG->{o_key}{$key1};
+
+    # Depth return (key cfg)
+    my $depth = (exists $k->{depth} && $k->{depth} || 0);
+
+
+    if (!defined $key2 or $key1 ne $key2) {
+      #warn "### search for &$key1 in ".join('',@p2);<>;
       #@path2 or return ($patchDOM->('remove', \@p1,\@p2 , undef ,undef));
 
       # @p2 = @{shift @path2};
     }
     debug "\nkey compare {{ ".join('.',@p1).' Vs '.join('.',@p2).' }}';
 
-    (join('',@p1) ne join('',@p2))
+    my $nb_occ=((exists $k->{occ})?$k->{occ}:1);
+
+    # TODO: compare node from keys
+    my @srh1 = search($d1, ['/',$key1], $nb_occ);
+    my @srh2 = search($d2, ['/',$key1], $nb_occ);
+
+    (join('',@srh1) ne join('',@srh2))
       and 
-	push @msg, $patchDOM->('move', \@p1,\@p2);
+	push @msg, $patchDOM->('move', \@srh1,\@srh2);
 
-    # option check integrity
-    if (defined $nb_occ and @p1) {
-      #push @msg, $patchDOM->('error', \@p1,\@p2);
+    my @nodes1 = path($d1, @srh1, $depth);
+    @nodes1 or die "Could'nt find this path ".join('.',map {join('',@{$_})} @srh1).' ! ';
+
+    my @nodes2 = path($d2, @srh2, $depth);
+    @nodes2 or die "Could'nt find this path ".join('.',map {join('',@{$_})} @srh2).' ! ';
+
+
+    my $i;
+    for $i (1..$nb_occ) {
+      push @msg, compare(shift(@nodes1), shift(@nodes2), \@srh1, \@srh2);
     }
-
-    # Depth return (key cfg)
-    my $depth = (exists $k->{depth} && $k->{depth} || 0);
-
-    #my @nodes = path($d1, @path1, $depth)
-    #  or die "Could'nt find this path ".join('.',map {join('',@{$_})} @path1).' ! ';
-
-    #my @nodes2 = path($d2, @path2, $depth)
-    #  or die "Could'nt find this path ".join('.',map {join('',@{$_})} @path2).' ! ';
-
-    push @msg, compare($d1, $d2,\@p1,\@p2);
 
     $do_resolv_patch or return @msg;
     return resolve_patch(@msg);

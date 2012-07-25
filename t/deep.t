@@ -1056,7 +1056,7 @@ package main;
 
 my $mod = new PKG_TEST();
 
-ok(testTravel(" travel ",
+ok(testTravel(" package  ",
 	      $mod,
 	      [
 	       '0 > |PKG_TEST%a : PKG_TEST',
@@ -1693,7 +1693,6 @@ o_complex(0);
 	});
   #############################################
 
-
   ok(testPathSearch("Search Complex key 1", $fs1,
 		    ['/','CRC'], # you cannot put '=','value' because the ?= eat it!
 		    #    ['/','CRC'], # you cannot put '=','value' because the ?= eat it!
@@ -1702,6 +1701,7 @@ o_complex(0);
 		     ['%','content','%','dir1','%','content','%','file1','/','CRC'],
 		     ['%','content','%','dir1','/','CRC'],
 		    ]));
+
 
   o_key({ A => {regexp=>['|','Data::Dumper','%','todump','@',0,'$','%','key'],
 	      eval=>'[0]->{key}'

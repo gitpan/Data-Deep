@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Data-Deep
-version:            0.06
+version:            0.07
 abstract:           Manipulation of Deep perl structure
 author:
     - Matthieu Damerose (damo@cpan.org)

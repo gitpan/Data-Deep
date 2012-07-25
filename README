@@ -21,13 +21,15 @@ To install, do the usual "perl Makefile.PL ; make ; make install".
 Improvement :
 -------------
 
+Bugs are always need to be seeken as it is complex module for me.
+Encoding tests are very expermimental.
+Perhaps patch formats could be improved, ...
+
+Feel Free to make it evolve trying to keep it as pratical as possible,
+could be integrated as CORE module if somebody have time for improve it.
 Could be quicker implemented in C (XS).
-Bugs are always need to be seeken.
-Encoding tests and so implemtation are began.
-Perhaps patch formats, ...
 
-Use it and abuse it,
-
+Anyway, use and abuse it,
 
 Stay cool!
 

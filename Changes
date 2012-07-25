@@ -19,3 +19,12 @@ Revision history for Perl extension Data::DeepManip.
 	- Changes file update ; Matthieu Damerose
 	- Infinite loop detection 
 
+0.07
+	- change argument call ref to array in internal &$matchPath() and &$isKey()
+	this was made for better usage in function travel, search and compare
+	- header changed for rt.cpan.org giving an error 
+	(thanks to Thomas Sibley and David Muir Sharnoff)
+	- DISABLED function : complex key compare (to use o_key as nodes priority searching) 
+	disabled as no test created on this very experimental, rewrited anyway ...
+
+
