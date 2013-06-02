@@ -633,6 +633,7 @@ ok(testPathSearch('array 4',
 		  [[ '@',3,'@',3,'@',3,'@',4,'=',4]] # give the two path  
 		 ));
 
+
 ok(testPathSearch('mix 3',
 		  $deep1,
 		  ['=%',sub {m/a1/}],
@@ -646,16 +647,16 @@ ok(testPathSearch('mix 3',
 
 ok(testSearch("mix 3",
 	      $deep1,
-	      ['=%',sub{/a1/}],
+	      ['=%', sub {m/a1/}],
 	      0,
 	      [[1,2,3],'toto',1,[8]]
 	     ));
 
-ok(testSearch("regexp 1",$deep1, ['=',    sub{/zlurg/}],  -1,['432zlurg432a1']));
-ok(testSearch("regexp 2",$deep1, ['%',    sub{/zlurg/i}],  0,['__found']));
-ok(testSearch("regexp 3",$deep1, ['@%$=', sub{/zlurg/i}],  0,[1,'__found']));
-ok(testSearch("regexp 4",$deep1, ['%',    sub{/d/}],       0,[{u=>undef},12]));
-ok(testSearch("regexp 5",$deep1, ['%',    sub{/d/}],      -1,[$deep1->[1],$deep1->[1]{o}]));
+ok(testSearch("regexp 1",$deep1, ['=',    sub{m/zlurg/i}],  -1,['432zlurg432a1']));
+ok(testSearch("regexp 2",$deep1, ['%',    sub{m/zlurg/i}],  0,['__found']));
+ok(testSearch("regexp 3",$deep1, ['@%$=', sub{m/zlurg/i}],  0,[1,'__found']));
+ok(testSearch("regexp 4",$deep1, ['%',    sub{m/d/}],       0,[{u=>undef},12]));
+ok(testSearch("regexp 5",$deep1, ['%',    sub{m/d/}],      -1,[$deep1->[1],$deep1->[1]{o}]));
 
 ##############################################################################################
 ## pbm under Perl cygwin-thread-multi-64int v5.10.0 
@@ -1684,12 +1685,17 @@ o_complex(0);
 
   #############################################
 
-  o_key({ CRC => {regexp=>['%','crc32','?='],
-		  eval=>'{crc32}'
-		 },
-	  SZ  => {regexp=>['%','sz','?='],
-		  eval=>'{sz}',
-		 }
+  o_key({
+
+#	 '.' => {regexp=>['%','content'],
+#		  eval=>'{content}'
+#		 },
+	 CRC => {regexp=>['%','crc32','?='],
+		 eval=>'{crc32}'
+		},
+	 SZ  => {regexp=>['%','sz','?='],
+		 eval=>'{sz}',
+		}
 	});
   #############################################
 

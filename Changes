@@ -27,4 +27,6 @@ Revision history for Perl extension Data::DeepManip.
 	- DISABLED function : complex key compare (to use o_key as nodes priority searching) 
 	disabled as no test created on this very experimental, rewrited anyway ...
 
-
+0.08
+	Bug #83259 : https://rt.cpan.org/Public/Bug/Display.html?id=83259
+	=> function _escape_path removed as it is useless

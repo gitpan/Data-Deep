@@ -154,7 +154,7 @@ See conversion function
 # General version and rules
 ##############################################################################
 use 5.004;
-$VERSION = '0.07';
+$VERSION = '0.08';
 #$| = 1;
 
 ##############################################################################
@@ -298,21 +298,6 @@ complex mode is used for intelligency complex (EX: elements move in an array)
 
 $__opt_dcl->('o_complex');
 
-
-##############################################################################
-#/````````````````````````````````````````````````````````````````````````````\
-
-# caractères a echapper dans les valeurs
-# ou dans les clefs
-# @%=$ \n\t\s ,.*
-
-sub __escape_path {
-  my $value=shift;
-
-  $value =~ s|[\n\t]||x;
-
-  return $value;
-}
 
 ##############################################################################
 sub debug {
@@ -529,7 +514,7 @@ my $matchPath = sub {
 	  $v_patt = $pattern[$j++];
 
 	  if (ref($v_patt) eq 'CODE') { # regexp or complexe val
-            local $_ = $v_where;
+            local ($_) = ($v_where);
 	    $v_patt->($_) or last PATTERN
 	  }
 	  elsif (ref($v_patt) and (Dumper($v_patt) ne Dumper($v_where))) {
@@ -581,6 +566,7 @@ my $isKey = sub {
   my @path=@_;
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
+
   (defined $CFG->{o_key}) or return @path;
 
   my $sz_path = scalar(@path);
@@ -606,7 +592,7 @@ my $isKey = sub {
 	# replace the (matched key expression) by ('/' , <key name>)
 
 	splice @path, $min_index, $sz_path, '/',$k;
-
+	#warn "__key $k -> ".join('.',@path)."\n";
 	return @path;
       }
     }
@@ -1204,11 +1190,12 @@ EX:
 
   my @nodes;
 
-  foreach (@paths) {
-    my @path = @{(ref($_) eq 'ARRAY') && $_ || $pathText2Dom->($_)};
+  foreach my $node (@paths) {
+    my @path = @{(ref($node) eq 'ARRAY') && $node || $pathText2Dom->($node)};
 
     # perl evaluation of the dom path
     my $e = $path2eval__->('$dom', $father_nb, @path);
+
     my $r = eval $e;
     debug $dom;
     debug $e.' evaluated to '.Dumper($r);
@@ -1230,8 +1217,8 @@ sub compare {
 
   my (@p1,@p2,$do_resolv_patch);
   if (@_) {
-    @p1 = @{$_[0]};
-    @p2 = @{$_[1]};
+    @p1 = $isKey->(@{$_[0]});
+    @p2 = $isKey->(@{$_[1]});
   }
   else {
     %loop_ref=();
@@ -1361,11 +1348,9 @@ EX:
   }
 
   ######################################## !!!!! KEY COMPARE
-  @p1 = $isKey->(@p1);
-  @p2 = $isKey->(@p2);
 
   # DISABLED AND NOT TESTED : very complex use of key for deep comparing
-
+  ##
   if (0 and $CFG->{o_key}) {
 
     # TODO : retrieve the keyname from last isKey call
@@ -1435,11 +1420,11 @@ EX:
 	    push @msg,
 	      compare( $d1->{$k},
 		       $d2->{$k},
-		       [@p1, '%',$k ],
-		       [@p2, '%',$k ],
+		       [$isKey->( @p1, '%',$k) ],
+		       [$isKey->( @p2, '%',$k) ],
 		     );
 	  } else {
-	    push @msg,$patchDOM->('remove', [@p1, '%', $k ] ,\@p2 , $d1->{$k} ,undef)
+	    push @msg,$patchDOM->('remove', [ $isKey->(@p1, '%', $k) ] ,\@p2 , $d1->{$k} ,undef)
 	  }
 
 	}#foreach($d1)
@@ -1448,7 +1433,7 @@ EX:
 	next if exists $seen{$k};
 
 	my $v = $d2->{$k};
-	push @msg,$patchDOM->('add', \@p1, [@p2, '%', $k ], undef, $v)
+	push @msg,$patchDOM->('add', \@p1, [ $isKey->(@p2, '%', $k) ], undef, $v)
       }
 
       $do_resolv_patch or return @msg;
@@ -1476,10 +1461,10 @@ EX:
 
 	foreach $i ($min+1..$#{$d1}) { # $d1 is bigger
 	  # silent just for complexe search mode
-	  push @msg,$patchDOM->('remove', [@p1, '@', $i ], \@p2 ,$d1->[$i], undef)
+	  push @msg,$patchDOM->('remove', [ $isKey->(@p1, '@', $i) ], \@p2 ,$d1->[$i], undef)
 	}
 	foreach $i ($#{$d1}+1..$#{$d2}) { # d2 is bigger
-	  push @msg,$patchDOM->('add', \@p1, [@p2, '@', $i ], undef, $d2->[$i])
+	  push @msg,$patchDOM->('add', \@p1, [ $isKey->(@p2, '@', $i) ], undef, $d2->[$i])
 	}
 	return @msg;
       }
@@ -1503,8 +1488,8 @@ EX:
 	    or
 	      @res = compare($val1,
 			     $d2->[$i],
-			     [@p1, '@',$i ],
-			     [@p2, '@',$i ]);
+			     [ $isKey->(@p1, '@',$i) ],
+			     [ $isKey->(@p2, '@',$i) ]);
 
 	  if (@res) {	$res_Eq[$i] = [@res]	    }   # (*)
 	  else
@@ -1521,18 +1506,25 @@ EX:
 
 	  unless (compare( $val1,
 			   $d2->[$j],
-			   [@p1, '@',$i ],
-			   [@p2, '@',$j ]))
+			   [ $isKey->(@p1, '@',$i) ],
+			   [ $isKey->(@p2, '@',$j) ]))
 	    {  #print " (found) ";
 
 	      $seen_dst[$j] = 1;
-	      $seen_src[$i] = $patchDOM->('move', [@p1, '@', $i ], [@p2, '@', $j ]);
+	      $seen_src[$i] = $patchDOM->('move', 
+					  [ $isKey->(@p1, '@', $i) ],
+					  [ $isKey->(@p2, '@', $j) ]);
 	      next ARRAY_CPLX;
 	    }
 	}
-
-	$seen_src[$i] = $patchDOM->('remove', [@p1, '@', $i ], \@p2, $val1, undef)
-	  unless (defined  $seen_src[$i]);
+	(defined  $seen_src[$i])
+	  or
+	    $seen_src[$i] = $patchDOM->('remove', 
+					[ $isKey->(@p1, '@', $i) ],
+					\@p2,
+					$val1,
+					undef
+				       );
 
 	#print " }SAR($i)";
       } # for $d1 (0..$min)
@@ -1541,7 +1533,13 @@ EX:
       ##
       foreach $i (0..$#{$d2}) {
 	defined($seen_dst[$i]) and next;
-	$seen_dst[$i] = $patchDOM->('add', \@p1, [@p2, '@', $i ], undef, $d2->[$i])
+
+	$seen_dst[$i] = $patchDOM->('add',
+				    \@p1,
+				    [ $isKey->(@p2, '@', $i) ], 
+				    undef, 
+				    $d2->[$i]
+				   )
       }
 
       my $max = $#seen_dst;
@@ -1576,7 +1574,10 @@ EX:
       if (loop_det($$d1, @p1)) {
       }
       else {
-	@msg = ( compare($$d1, $$d2, [@p1, '$'], [@p2, '$' ]));
+	@msg = ( compare($$d1, $$d2,
+			 [ $isKey->(@p1, '$') ],
+			 [ $isKey->(@p2, '$') ])
+	       );
       }
       $do_resolv_patch or return @msg;
       return resolve_patch(@msg);
