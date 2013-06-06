@@ -1336,9 +1336,10 @@ __DIFF
   ok(testCompare( "Ref module 4",
 		  [new Data::Dumper([1])],
 		  [new Data::Dumper([2])],
-		  ($^V and $^V lt v5.8.0)
+		  (($^V and $^V lt v5.8.0)
 		  &&	       ['change(@0|Data::Dumper$,@0|Data::Dumper$)="+1"/=>"+2"']	
 		  ||           ['change(@0|Data::Dumper%todump@0,@0|Data::Dumper%todump@0)=1/=>2']
+		  )
 		));
 
   local *a=[2,3,4];
@@ -1462,14 +1463,14 @@ __DIFF
 
   ok(testCompare( 	"Differences 3",
 			{test=> [
-				 \ {a=>'toto'},
-				 \ 3321,
+				 \{a=>'toto'},
+				 \3321,
 				 {o=>5,  d=>12},
 				 55
 				], equal=>432
 			},
 			{test=> [
-				 \ {a=>'titi',b=>3},
+				 \{a=>'titi',b=>3},
 				 {o=>5,  d=>12},
 				 543,
 				 \3321
@@ -1497,7 +1498,7 @@ __DIFF
 
   ok(testCompare( 	"Differences 4",
 			[
-			 \ {'toto' => 12},
+			 \{'toto' => 12},
 			 33,
 			 {
 			  o=>5,
@@ -1506,7 +1507,7 @@ __DIFF
 			 'titi'
 			],
 			[
-			 \ {'toto' => 12,E=>3},
+			 \{'toto' => 12,E=>3},
 			 {
 			  d=>12,
 			  o=>5
