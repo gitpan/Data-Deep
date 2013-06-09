@@ -14,6 +14,7 @@
 
 
 use strict;
+use warnings;
 
 use Data::Dumper;
 
@@ -30,7 +31,7 @@ our $TEST_FILTER;
 #$TEST_FILTER = '/complex\smode/';
 #$TEST_FILTER = '/glob\s1/i';
 
-#o_debug(1);
+o_debug(0);
 
 
 ##############################################################################
@@ -166,7 +167,7 @@ sub testPathSearch($$$$;$) { # testing if search() return the right paths
 
   my $res = testRes( \@paths, $waited );
   if ($res) {
-    bug "$res\n";
+    warn $msg.' => dom modified !'.$res."\n";
     return 0;
   }
   return 1;
@@ -200,8 +201,9 @@ sub testTravel { # testing if travel() goes into the right values
   bug "\n - check bords effect.";
 
   if ($dom_before ne Dumper($dom)) {
-    bug "\nWaited    : ".$dom_before."\n";
-    bug "\nCorrupted : ".Dumper($dom)."\n";
+    warn $msg.' => dom modified !'
+      ."\nWaited    : ".$dom_before."\n"
+	."\nCorrupted : ".Dumper($dom)."\n";
     return 0;
   }
 
@@ -215,8 +217,9 @@ sub testTravel { # testing if travel() goes into the right values
   $res=~s/\n$//;
   $wait=~s/\n$//;
   if ($res ne $wait) {
-    bug "\nWaited    : ".$wait."\n";
-    bug "\nResult : ".$res."\n";
+    warn $msg.' => dom modified !'
+      ."\nWaited    : ".$wait."\n"
+	."\nResult : ".$res."\n";
     return 0;
   }
   return 1;	
@@ -251,8 +254,9 @@ sub testSearch { # testing if search() then path() return the right values
 
   bug "\n - check bords effect. ";
   if (Dumper($dom) ne $dom_before) {
-    bug "\nWaited    : ".$dom_before."\n";
-    bug "\nCorrupted : ".Dumper($dom)."\n";
+    warn $msg.' => dom modified !'
+      ."\nWaited    : ".$dom_before."\n"
+	."\nCorrupted : ".Dumper($dom)."\n";
     return 0;
   }
 
@@ -261,7 +265,7 @@ sub testSearch { # testing if search() then path() return the right values
   my @diff = compare(\@nodes,$waited);
 
   if (@diff) {
-    bug "\nWaited : ".join("\n  - ",map {domPatch2TEXT $_} @diff)."\n";
+    warn "$msg => waited : ".join("\n  - ",map {domPatch2TEXT $_} @diff)."\n";
 
     return 0;
   }
@@ -302,8 +306,12 @@ sub testPath { # test for path()
 
   $d1=~s/\n$//;
   $d2=~s/\n$//;
+  if ($d1 eq $d2) {
+    return 1;
+  }
 
-  return ($d1 eq $d2);
+  warn $msg.' => different path '.$d1."\nVs\n".$d2;
+  return 0;
 }
 
 
@@ -331,21 +339,22 @@ sub testCompare {
   bug "\n - check compare results : ";
   my $res = testRes( \@pth_1_2, $waited_patch );
   if ($res) {
-    bug "$res\n";
+    warn $msg.' => '.$res;
     return 0;
   }
   return 1;
 
-  bug "\n - check bords effect.";
   if (Dumper($a1) ne $d1) {
-    bug "\nWaited    : ".$d1."\n";
-    bug "\nCorrupted : ".Dumper($a1)."\n";
+    warn $msg.' => dom modified !';
+    warn  "\nWaited    : ".$d1."\n";
+    warn "\nCorrupted : ".Dumper($a1)."\n";
     return 0;
   }
 
   if (Dumper($a2) ne $d2) {
-    bug "\nWaited    : ".$d2."\n";
-    bug "\nCorrupted : ".Dumper($a2)."\n";
+    warn $msg.' => dom modified !';
+    warn  "\nWaited    : ".$d1."\n";
+    warn "\nCorrupted : ".Dumper($a1)."\n";
     return 0;
   }
 
@@ -358,11 +367,12 @@ sub testCompare {
     my @res = compare($a1_patched,$a2);
 
     if (@res) {
-      bug "After applying patch {\n  - "
+      warn "$msg => differences after applying patch {\n  - "
 	.join("\n  - ",map {domPatch2TEXT $_} @pth_1_2)
 	  ."\n}\nStill found remaining differences {\n  - "
 	.join("\n  - ",map {domPatch2TEXT $_} @res)
 	  ."\n}\nDom dump after patch is ".Dumper($a1_patched);
+
       return 0;
     }
     else {  ## Apply reverse patch
@@ -378,9 +388,9 @@ sub testCompare {
       ############################################
       @res = compare($a1,$a2_patched);
       if (@res) {
-	bug("Remaining differences after applying reverse patcher :\n"
-	    .join("\n",map {domPatch2TEXT $_} @res)
-	    ."\nResult after patch is ".Dumper($a2_patched));
+	warn "$msg => differences after after applying reverse patcher :\n"
+	  .join("\n",map {domPatch2TEXT $_} @res)
+	    ."\nResult after patch is ".Dumper($a2_patched);
 
 	return 0;
       }
@@ -392,7 +402,7 @@ sub testCompare {
 ##############################################################################
 use strict;
 use Test;
-BEGIN { plan tests =>292};
+BEGIN { plan tests =>270};
 ##############################################################################
 
 
@@ -512,7 +522,7 @@ ok(testSearch("node 2", # -1 depth return the value matched
   [{r=>\{a=>3}}]
 ));
 
-my $deep1=
+my $sd1=
     ['a',
      {
       a1=>[1,2,3],
@@ -534,19 +544,19 @@ my $deep1=
 #testPathSearch('path 1', $dom, what, [<waited>],  3)
 
 
-ok(testPathSearch( 'not found 1',$deep1, ['%','unknown'], [] ));
-ok(testPathSearch( 'not found 2',$deep1, ['@',3], [] ));
-ok(testPathSearch( 'not found 3',$deep1, ['=','unknown'], [] ));
+ok(testPathSearch( 'not found 1',$sd1, ['%','unknown'], [] ));
+ok(testPathSearch( 'not found 2',$sd1, ['@',3], [] ));
+ok(testPathSearch( 'not found 3',$sd1, ['=','unknown'], [] ));
 
-ok(testPathSearch( 'scalar 1',$deep1, ['=','a'], [['@',0,'=','a']] ));
-ok(testPathSearch( 'scalar 2',$deep1, ['=',12] , [['@',1,'%','o','%','d','=',12]] ));
+ok(testPathSearch( 'scalar 1',$sd1, ['=','a'], [['@',0,'=','a']] ));
+ok(testPathSearch( 'scalar 2',$sd1, ['=',12] , [['@',1,'%','o','%','d','=',12]] ));
 
-ok(testPathSearch( 'hash 1',$deep1, ['%','po'], [['@',1, '%', 'o', '%', 'po']] ));
-ok(testPathSearch( 'hash 2',$deep1, ['%','d'] , [['@',1, '%', 'o', '%', 'd']]  ));
-ok(testPathSearch( 'hash 3',$deep1, ['%','d2'], [['@',1, '%', 'd2']] ));
+ok(testPathSearch( 'hash 1',$sd1, ['%','po'], [['@',1, '%', 'o', '%', 'po']] ));
+ok(testPathSearch( 'hash 2',$sd1, ['%','d'] , [['@',1, '%', 'o', '%', 'd']]  ));
+ok(testPathSearch( 'hash 3',$sd1, ['%','d2'], [['@',1, '%', 'd2']] ));
 ok(testPathSearch(
 		  'hash 4',
-		  $deep1, 
+		  $sd1,
 		  ['%','a1'], 
 		  [['@',1,'%','o','%','a1'],
 		   ['@',1, '%', 'a1']
@@ -573,19 +583,19 @@ ok(testPathSearch(
 		 ));
 
 
-ok(testPathSearch("hash key 1",$deep1,
+ok(testPathSearch("hash key 1",$sd1,
 		  ['?%','=','12'],
 		  [['@',1,'%','o','%','d','=',12]],
 		  2
 		 ));
 
-ok(testPathSearch("hash key 2",$deep1,
+ok(testPathSearch("hash key 2",$sd1,
 		  ['?%','%','u'],
 		  [['@',1,'%','d2','%','u']],
 		  2
 		 ));
 
-ok(testPathSearch('regexp',$deep1,
+ok(testPathSearch('regexp',$sd1,
 		  ['%',sub{/a1/}],
 		  [
 		   ['@',1,'%','a1bis'],
@@ -594,7 +604,7 @@ ok(testPathSearch('regexp',$deep1,
 		  ]
 		 ));
 
-ok(testPathSearch('array 1',$deep1,
+ok(testPathSearch('array 1',$sd1,
 		  ['@',0],
 		  [
 		   ['@',0],
@@ -606,14 +616,14 @@ ok(testPathSearch('array 1',$deep1,
 		 ));
 
 
-ok(testPathSearch('array 2',$deep1,
+ok(testPathSearch('array 2',$sd1,
 		  ['@',1,'%','a1'],
 		  [
 		   ['@',1,'%','a1']
 		  ]
 		 ));
 
-ok(testPathSearch('array 3',$deep1,
+ok(testPathSearch('array 3',$sd1,
 		  ['@',2],
 		  [
 		   ['@',1,'%','g','@',2],
@@ -635,7 +645,7 @@ ok(testPathSearch('array 4',
 
 
 ok(testPathSearch('mix 3',
-		  $deep1,
+		  $sd1,
 		  ['=%',sub {m/a1/}],
 		  [
 		   ['@',1,'%','a1bis'],
@@ -646,17 +656,17 @@ ok(testPathSearch('mix 3',
 		 ));
 
 ok(testSearch("mix 3",
-	      $deep1,
+	      $sd1,
 	      ['=%', sub {m/a1/}],
 	      0,
 	      [[1,2,3],'toto',1,[8]]
 	     ));
 
-ok(testSearch("regexp 1",$deep1, ['=',    sub{m/zlurg/i}],  -1,['432zlurg432a1']));
-ok(testSearch("regexp 2",$deep1, ['%',    sub{m/zlurg/i}],  0,['__found']));
-ok(testSearch("regexp 3",$deep1, ['@%$=', sub{m/zlurg/i}],  0,[1,'__found']));
-ok(testSearch("regexp 4",$deep1, ['%',    sub{m/d/}],       0,[{u=>undef},12]));
-ok(testSearch("regexp 5",$deep1, ['%',    sub{m/d/}],      -1,[$deep1->[1],$deep1->[1]{o}]));
+ok(testSearch("regexp 1",$sd1, ['=',    sub{m/zlurg/i}],  -1,['432zlurg432a1']));
+ok(testSearch("regexp 2",$sd1, ['%',    sub{m/zlurg/i}],  0,['__found']));
+ok(testSearch("regexp 3",$sd1, ['@%$=', sub{m/zlurg/i}],  0,[1,'__found']));
+ok(testSearch("regexp 4",$sd1, ['%',    sub{m/d/}],       0,[{u=>undef},12]));
+ok(testSearch("regexp 5",$sd1, ['%',    sub{m/d/}],      -1,[$sd1->[1],$sd1->[1]{o}]));
 
 ##############################################################################################
 ## pbm under Perl cygwin-thread-multi-64int v5.10.0 
@@ -1125,167 +1135,188 @@ o_complex(0);
 #############################################################################
 my $cplx;
 
-foreach $cplx (0..1) {
 
-  bug("\n\n                  >>>>>>>>   ".($cplx
-					   &&
-					   "TESTING WITH COMPLEX ANALYSIS"
-					   ||
-					   "TESTING WITH SIMPLE ANALYSIS"
-					  )
-      . "   <<<<<<<<<<\n\n"
-     );
+ok(testCompare( "undef compare", undef , undef, [],1));
+ok(testCompare( "undef compare 2", undef , 1, ['change(,)=undef/=>1'],1));
+ok(testCompare( "undef compare 2", 1 , undef, ['change(,)=1/=>undef'],1));
 
-  o_complex($cplx);
+#############################################################################
+ok(testCompare( "Equality", 'toto\'23_=\n=$jkl' , 'toto\'23_=\n=$jkl', [] ));
+#############################################################################
+ok(testCompare( "scalar" , "abc123\'=\n,\$\"{}[]()" , "tit\'i",
+		[ 'change(,)="abc123\'=\n,\$\"{}[]()"/=>"tit\'i"'
+		] ));
 
-  ok(testCompare( "undef compare", undef , undef, [],1));
-  ok(testCompare( "undef compare 2", undef , 1, ['change(,)=undef/=>1'],1));
-  ok(testCompare( "undef compare 2", 1 , undef, ['change(,)=1/=>undef'],1));
+ok(testCompare( "Scalar 1", [123], "jklj",
+		[ 'change(,)=[123]/=>"jklj"'] ));
 
-  #############################################################################
-  ok(testCompare( "Equality", 'toto\'23_=\n=$jkl' , 'toto\'23_=\n=$jkl', [] ));
-  #############################################################################
-  ok(testCompare( "scalar" , "abc123\'=\n,\$\"{}[]()" , "tit\'i",
-		  [ 'change(,)="abc123\'=\n,\$\"{}[]()"/=>"tit\'i"'
-		  ] ));
+ok(testCompare( "Scalar 2", 1, [5],
+		[ 'change(,)=1/=>[5]' ] ));
 
-  ok(testCompare( "Scalar 1", [123], "jklj",
-		  [ 'change(,)=[123]/=>"jklj"'] ));
+ok(testCompare( "Scalar 3", \ { a=>2 }, \ [5],
+		[ 'change($,$)={"a"=>2}/=>[5]' ], 1 ));
 
-  ok(testCompare( "Scalar 2", 1, [5],
-		  [ 'change(,)=1/=>[5]' ] ));
+#############################################################################
+my $a1= [1,2,3,'x'];
+my $a2= [1,2];
 
-  ok(testCompare( "Scalar 3", \ { a=>2 }, \ [5],
-		  [ 'change($,$)={"a"=>2}/=>[5]' ], 1 ));
+ok(testCompare( "Array", $a1,$a2,
+		[
+		 'remove(@2,)=3',
+		 'remove(@3,)="x"'
+		]
+	      ));
 
-  #############################################################################
-  my $a1= [1,2,3,'x'];
-  my $a2= [1,2];
+#############################################################################
+ok(testCompare( "Array 2", $a2,$a1,
+		[ 'add(,@3)="x"',
+		  'add(,@2)=3'
+		]
+	      ));
 
-  ok(testCompare( "Array", $a1,$a2,
-		  [
-		   'remove(@2,)=3',
-		   'remove(@3,)="x"'
-		  ]
-		));
+#############################################################################
+$a1= ["a","b","c"];
+$a2= ["c","a","d","b"];
 
-  #############################################################################
-  ok(testCompare( "Array 2", $a2,$a1,
-		  [ 'add(,@3)="x"',
-		    'add(,@2)=3'
-		  ]
-		));
 
-  #############################################################################
-  $a1= ["a","b","c"];
-  $a2= ["c","a","d","b"];
+ok(testCompare( "Array 3", $a1,$a2,
+		['add(,@3)="b"',
+		 'change(@0,@0)="a"/=>"c"',
+		 'change(@1,@1)="b"/=>"a"',
+		 'change(@2,@2)="c"/=>"d"',
+		]));
 
-  ok(testCompare( "Array 3", $a1,$a2,
-		  (($cplx)?
+o_complex(1);
+
+ok(testCompare( "Array 3'", $a1,$a2,
 		   [ 'add(,@2)="d"',
 		     'move(@0,@1)=',
 		     'move(@1,@3)=',
 		     'move(@2,@0)=',
-		   ]:['add(,@3)="b"',
-		      'change(@0,@0)="a"/=>"c"',
-		      'change(@1,@1)="b"/=>"a"',
-		      'change(@2,@2)="c"/=>"d"',
-		     ])));
+		   ]));
+
+
+
+o_complex(0);
 
   #############################################################################
 
-  ($cplx) or #patch KO in cplx mode (TODO)
-    ok(testCompare( "Array 4", $a2,$a1,
-		    (($cplx)?[ 'move(@0,@2)=',
-			       'move(@1,@0)=',
-			       'remove(@2,)="d"',
-			       'move(@3,@1)='
-			     ]:[ 'change(@0,@0)="c"/=>"a"',
-				 'change(@1,@1)="a"/=>"b"',
-				 'change(@2,@2)="d"/=>"c"',
-				 'remove(@3,)="b"'
-			       ]),1));
-  if ($cplx) {
-    ($cplx) or #patch KO in cplx mode (TODO)
-      ok(testCompare( "Array 5",
-		      ['c','a','d','b'],
-		      ['a',2,'b','c',1],
-		      [ 'move(@0,@3)=',
-			'move(@1,@0)=',
-			'remove(@2,)="d"',
-			'move(@3,@2)=',
-			'add(,@1)=2',
-			'add(,@4)=1'
-		      ],1));
-  }
+ok(testCompare( "Array 4", $a2,$a1,
+		[ 'change(@0,@0)="c"/=>"a"',
+		  'change(@1,@1)="a"/=>"b"',
+		  'change(@2,@2)="d"/=>"c"',
+		  'remove(@3,)="b"'
+		],
+		1
+	      ));
+
+o_complex(1);
+0 and # patch diff is KO in cplx mode (TODO)
+  ok(testCompare( "Array 4'", $a2,$a1,
+		    [ 'move(@0,@2)=',
+		      'move(@1,@0)=',
+		      'remove(@2,)="d"',
+		      'move(@3,@1)='
+		    ]),1);
 
 
-  #############################################################################
+0 and #patch KO in cplx mode (TODO)
+  ok(testCompare( "Array 5",
+		  ['c','a','d','b'],
+		  ['a',2,'b','c',1],
+		  [ 'move(@0,@3)=',
+		    'move(@1,@0)=',
+		    'remove(@2,)="d"',
+		    'move(@3,@2)=',
+		    'add(,@1)=2',
+		    'add(,@4)=1'
+		  ],1));
 
-  ok(testCompare( "Hash-table 1",
-		  [2,{a=>5}],
-		  [2,{a=>5,b=>[0]} ],
-		  [ 'add(@1,@1%b)=[0]' ]
+#############################################################################
+
+ok(testCompare( "Hash-table 1",
+		[2,{a=>5}],
+		[2,{a=>5,b=>[0]} ],
+		[ 'add(@1,@1%b)=[0]' ]
+	      ));
+
+ok(testCompare( "Hash-table 2",
+		{a=>5,b=>3},
+		{a=>5},
+		[ 'remove(%b,)=3' ]
+	      ));
+
+ok(testCompare( "Hash-table 3",
+		[1,{a=>5,b=>3}],
+		[1,{a=>5}],
+		[ 'remove(@1%b,@1)=3' ]
+	      ));
+
+
+#############################################################################
+o_complex(0);
+
+
+ok(testCompare( "References 1",
+		[[3],\2],
+		[1,\2,[3]],
+		[
+		 'change(@0,@0)=[3]/=>1',
+		 'add(,@2)=[3]'
+		]));
+
+o_complex(1);
+ok(testCompare( "References 1'",
+		[[3],\2],
+		[1,\2,[3]],
+		[ 'move(@0,@2)=',
+		  'add(,@0)=1'
+		]
+	      ));
+
+#############################################################################
+
+o_complex(0);
+ok(testCompare( "References 2",
+		[[1], 2, [1], \ [], \ {}],
+		[{} , 2, \ [], \ {}],
+		[
+		 'change(@0,@0)=[1]/=>{}',
+		 'change(@2,@2)=[1]/=>\[]',
+		 'change(@3$,@3$)=[]/=>{}',
+		 'remove(@4,)=\{}'
+		],
+		1
+	      ));
+
+o_complex(1);
+0 and  #patch compare KO in cplx mode (TODO)
+  ok(testCompare( "References 2'",
+		  [[1], 2, [1], \ [], \ {}],
+		  [{} , 2, \ [], \ {}],
+		  [
+		   'change(@0,@0)=[1]/=>{}',
+		   'remove(@2,)=[1]',
+		   'move(@3,@2)=',
+		   'move(@4,@3)='
+		  ],
+		  1
 		));
 
-  ok(testCompare( "Hash-table 2",
-		  {a=>5,b=>3},
-		  {a=>5},
-		  [ 'remove(%b,)=3' ]
-		));
+o_complex(0);
 
-  if ($cplx) {
-    ok(testCompare( "Hash-table 3",
-		    [1,{a=>5,b=>3}],
-		    [1,{a=>5}],
-		    [ 'remove(@1%b,@1)=3' ]
-		  ));
-  }
+ok(testCompare( "Ref module 1",
+		[[3],sub{},    sub{}, *STDIN,(new Data::Dumper(['l']))],
+		[[3],sub{'io'},'klm', 432   ,(new Data::Dumper([123]))],
+		['change(@2,@2)=sub { "DUMMY" }/=>"klm"',
+		 'change(@3,@3)=*::STDIN/=>432',
+		 'change(@4|Data::Dumper%todump@0,@4|Data::Dumper%todump@0)="l"/=>123'
+		]
+	      ));
 
-  #############################################################################
-  ok(testCompare( "References",
-		  [[3],\2],
-		  [1,\2,[3]],
-		  (($cplx)?[ 'move(@0,@2)=',
-			     'add(,@0)=1'
-			   ]:[
-			      'change(@0,@0)=[3]/=>1',
-			      'add(,@2)=[3]'
-			     ])
-		));
+use Math::BigInt;
 
-  #############################################################################
-  ($cplx) or #patch KO in cplx mode (TODO)
-    ok(testCompare( "References 2",
-		    [[1], 2, [1], \ [], \ {}],
-		    [{} , 2, \ [], \ {}],
-		    [
-		     'change(@0,@0)=[1]/=>{}',
-		     (($cplx)?(
-			       'remove(@2,)=[1]',
-			       'move(@3,@2)=',
-			       'move(@4,@3)='
-			      ):(
-				 'change(@2,@2)=[1]/=>\[]',
-				 'change(@3$,@3$)=[]/=>{}',
-				 'remove(@4,)=\{}'
-				))
-		    ],
-		    1
-		  ));
-
-  ok(testCompare( "Ref module 1",
-		  [[3],sub{},    sub{}, *STDIN,(new Data::Dumper(['l']))],
-		  [[3],sub{'io'},'klm', 432   ,(new Data::Dumper([123]))],
-		  ['change(@2,@2)=sub { "DUMMY" }/=>"klm"',
-		   'change(@3,@3)=*::STDIN/=>432',
-		   'change(@4|Data::Dumper%todump@0,@4|Data::Dumper%todump@0)="l"/=>123'
-		  ]
-		));
-
-  use Math::BigInt;
-
-  my $diff=<<'__DIFF';
+my $diff=<<'__DIFF';
 change(@0,@0)=bless( {
           "seen" => {},
           "maxdepth" => 0,
@@ -1324,259 +1355,283 @@ __DIFF
 
 
 
- 0 and ok(testCompare( "Ref module 3",
-		  [new Math::BigInt(5)],
-		  [new Math::BigInt(3)],
+0 and ok(testCompare( "Ref module 3",
+		      [new Math::BigInt(5)],
+		      [new Math::BigInt(3)],
+		      ($^V and $^V lt v5.8.0)
+		      &&	   ['change(@0|Math::BigInt$,@0|Math::BigInt$)="+5"/=>"+3"']	
+		      ||           ['change(@0|Math::BigInt%value@0,@0|Math::BigInt%value@0)=5/=>3']
+		    ));
 
-		  ($^V and $^V lt v5.8.0)
-		  &&	       ['change(@0|Math::BigInt$,@0|Math::BigInt$)="+5"/=>"+3"']	
-		  ||           ['change(@0|Math::BigInt%value@0,@0|Math::BigInt%value@0)=5/=>3']
-		));
+ok(testCompare( "Ref module 4",
+		[new Data::Dumper([1])],
+		[new Data::Dumper([2])],
+		(($^V and $^V lt v5.8.0)
+		 &&	      ['change(@0|Data::Dumper$,@0|Data::Dumper$)="+1"/=>"+2"']	
+		 ||           ['change(@0|Data::Dumper%todump@0,@0|Data::Dumper%todump@0)=1/=>2']
+		)
+	      ));
 
-  ok(testCompare( "Ref module 4",
-		  [new Data::Dumper([1])],
-		  [new Data::Dumper([2])],
-		  (($^V and $^V lt v5.8.0)
-		  &&	       ['change(@0|Data::Dumper$,@0|Data::Dumper$)="+1"/=>"+2"']	
-		  ||           ['change(@0|Data::Dumper%todump@0,@0|Data::Dumper%todump@0)=1/=>2']
-		  )
-		));
+local *a=[2,3,4];
+local *h={a=>3,b=>4};
+local *s=\3;
 
-  local *a=[2,3,4];
-  local *h={a=>3,b=>4};
-  local *s=\3;
+ok(testCompare( "Glob 0",
+		[\*a,\*h,\*s],
+		[\*a,\*h,\*s],
+		[]
+	      ));
 
-  ok(testCompare( "Glob 0",
-		  [\*a,\*h,\*s],
-		  [\*a,\*h,\*s],
-		  []
-		));
-
-  ok(testCompare( "Glob 1",
+o_complex(0);
+ok(testCompare( "Glob 1",
 		  [1,\*h,\*s,\*a],
 		  [2,\*a,\*h,\*s],
-		  ['change(@0,@0)=1/=>2',
-		   (($cplx)?
-		    (		
-		     'move(@1,@2)=',
-		     'move(@2,@3)=',
-		     'move(@3,@1)='):
-		    (
-		     'change(@1*main::h,@1*main::a)={"a"=>3,"b"=>4}/=>[2,3,4]',
-		     'change(@2*main::s,@2*main::h)=\3/=>{"a"=>3,"b"=>4}',
-		     'change(@3*main::a,@3*main::s)=[2,3,4]/=>\3')
-		   )
+		  [
+		   'change(@0,@0)=1/=>2',
+		   'change(@1*main::h,@1*main::a)={"a"=>3,"b"=>4}/=>[2,3,4]',
+		   'change(@2*main::s,@2*main::h)=\3/=>{"a"=>3,"b"=>4}',
+		   'change(@3*main::a,@3*main::s)=[2,3,4]/=>\3'
 		  ]
 		));
 
-  #############################################################################
-  my $deep1={
-	     a1=>[1,2,3],
-	     g=>['r',3],
-	     o=>{
-		 d=>12,
-		 d2=>{u=>undef},
-		 d3=>[],
-		 po=>3
-		}
-	    };
+o_complex(1);
+ok(testCompare( "Glob 1",
+		[1,\*h,\*s,\*a],
+		[2,\*a,\*h,\*s],
+		['change(@0,@0)=1/=>2',
+		 'move(@1,@2)=',
+		 'move(@2,@3)=',
+		 'move(@3,@1)='
+		]
+	      ));
 
-  my $deep2={
-	     a1=>[1,2,3,[]],
-	     g=>['r',3],
-	     o=>{
-		 d=>1,
-		 d2=>3,
-		 d3=>10
-		}
-	    };
 
-  ok(testCompare(	"Equality",
-			$deep1,$deep1,
-			[ ]
-		));
 
-  #############################################################################
-  my @patch_1_2 =
-    (
-     'change(%o%d3,%o%d3)=[]/=>10',
-     'change(%o%d2,%o%d2)={"u"=>undef}/=>3',
-     'remove(%o%po,%o)=3',
-     'add(%a1,%a1@3)=[]',
-     'change(%o%d,%o%d)=12/=>1'
-    );
+#############################################################################
+my $deep1={
+	   a1=>[1,2,3],
+	   g=>['r',3],
+	   o=>{
+	       d=>12,
+	       d2=>{u=>undef},
+	       d3=>[],
+	       po=>3
+	      }
+	  };
 
-  ok(testCompare( 	"Differences",
+my $deep2={
+	   a1=>[1,2,3,[]],
+	   g=>['r',3],
+	   o=>{
+	       d=>1,
+	       d2=>3,
+	       d3=>10
+	      }
+	  };
+
+ok(testCompare(	"Equality",
+		$deep1,$deep1,
+		[ ]
+	      ));
+
+#############################################################################
+my @patch_1_2 =
+  (
+   'change(%o%d3,%o%d3)=[]/=>10',
+   'change(%o%d2,%o%d2)={"u"=>undef}/=>3',
+   'remove(%o%po,%o)=3',
+   'add(%a1,%a1@3)=[]',
+   'change(%o%d,%o%d)=12/=>1'
+  );
+
+ok(testCompare( 	"Differences",
 			$deep1,
 			$deep2,
 			\@patch_1_2,
 			1
-		));
+	      ));
 
-  #############################################################################
-  my $deep1_patched = applyPatch($deep1, @patch_1_2);
+#############################################################################
+my $deep1_patched = applyPatch($deep1, @patch_1_2);
 
-  ok(testCompare( 	"Equality after patch",
+ok(testCompare( 	"Equality after patch",
 			$deep1_patched, $deep2,
 			[ ]
-		));
+	      ));
 
-  ok(testCompare( 	"Differences bis ",
+ok(testCompare( 	"Differences bis ",
 			$deep1,
 			$deep2,
 			\@patch_1_2,
 			1
-		));
+	      ));
 
 
-  ok(testCompare( 	"Differences bis twice (previous bord effect) ",
+ok(testCompare( 	"Differences bis twice (previous bord effect) ",
 			$deep1,
 			$deep2,
 			\@patch_1_2,
 			1
-		));
+	      ));
 
-  #############################################################################
-  my @patch_2_1_ =
-    (
-     'remove(%a1@3,%a1)=[]',
-     'change(%o%d,%o%d)=1/=>12',
-     'change(%o%d3,%o%d3)=10/=>[]',
-     'change(%o%d2,%o%d2)=3/=>{"u"=>undef}',
-     'add(%o,%o%po)=3',
-    );
+#############################################################################
+my @patch_2_1_ =
+  (
+   'remove(%a1@3,%a1)=[]',
+   'change(%o%d,%o%d)=1/=>12',
+   'change(%o%d3,%o%d3)=10/=>[]',
+   'change(%o%d2,%o%d2)=3/=>{"u"=>undef}',
+   'add(%o,%o%po)=3',
+  );
 
 
-  ok(testCompare( 	"Differences 2",
+ok(testCompare( 	"Differences 2",
 			$deep2,
 			$deep1,
 			\@patch_2_1_,
 			1
-		));
+	      ));
 
-  $deep1_patched = applyPatch($deep2, @patch_2_1_ );
+$deep1_patched = applyPatch($deep2, @patch_2_1_ );
 
-  ok(testCompare( 	"Equality after automatic patch 2",
+ok(testCompare( 	"Equality after automatic patch 2",
 			$deep1_patched,$deep1,
 			[ ]
-		));
-
-  ok(testCompare( 	"Differences 3",
-			{test=> [
-				 \{a=>'toto'},
-				 \3321,
-				 {o=>5,  d=>12},
-				 55
-				], equal=>432
-			},
-			{test=> [
-				 \{a=>'titi',b=>3},
-				 {o=>5,  d=>12},
-				 543,
-				 \3321
-				], equal=>432
-			},
-			[
-			 'change(%test@0$%a,%test@0$%a)="toto"/=>"titi"',
-			 'add(%test@0$,%test@0$%b)=3',
-			 (($cplx)?
-			  (
-			   'move(%test@1,%test@3)=',
-			   'move(%test@2,%test@1)=',
-			   'remove(%test@3,%test)=55',
-			   'add(%test,%test@2)=543'
-			  )
-			  :
-			  (
-			   'change(%test@1,%test@1)=\3321/=>{"d"=>12,"o"=>5}',
-			   'change(%test@2,%test@2)={"d"=>12,"o"=>5}/=>543',
-			   'change(%test@3,%test@3)=55/=>\3321'
-			  ))
-			],
-			1
-		));
-
-  ok(testCompare( 	"Differences 4",
-			[
-			 \{'toto' => 12},
-			 33,
-			 {
-			  o=>5,
-			  d=>12
-			 },
-			 'titi'
-			],
-			[
-			 \{'toto' => 12,E=>3},
-			 {
-			  d=>12,
-			  o=>5
-			 },
-			 'titi'
-			],
-			[
-			 'add(@0$,@0$%E)=3',
-			 (($cplx)?(
-				   'remove(@1,)=33',
-				   'move(@2,@1)=',
-				   'move(@3,@2)='
-				  ):(
-				     'change(@1,@1)=33/=>{"d"=>12,"o"=>5}',
-				     'change(@2,@2)={"d"=>12,"o"=>5}/=>"titi"',
-				     'remove(@3,)="titi"'
-				    ))
-			],
-			1
-		));
+	      ));
 
 
-  if ($cplx) { 	  # test the post replacement of a add/remove by a move
 
-    ok(testCompare( "post patch move 1",
-		    {a=>2},
-		    {b=>2},
-		    [ 'move(%a,%b)=' ],1
-		  ));
+o_complex(0);
 
-    ok(testCompare( "post patch move 2",
-		    \ {a=>2},
-		    \ {b=>2},
-		    [ 'move($%a,$%b)=' ],1
-		  ));
+my $a3 = {test=> [
+		  \{a=>'toto'},
+	  \3321,
+	  {o=>5,  d=>12},
+	  55
+	 ], equal=>432
+};
 
-    ok(testCompare( "post patch move 3", # reg
-		    [2],
-		    {b=>2},
-		    [ 'change(,)=[2]/=>{"b"=>2}' ],1
-		  ));
+my $b3 = {test=> [
+		  \{a=>'titi',b=>3},
+	  {o=>5,  d=>12},
+	  543,
+	  \3321
+	 ], equal=>432
+};
 
-    ok(testCompare( "post patch move 4", # limit
-		    [{a=>2,e=>2},1],
-		    [{b=>2},1,{e=>2}],
-		    [ 'move(@0%a,@0%b)=',
-		      'remove(@0%e,@0)=2',
-		      'add(,@2)={"e"=>2}'
-		    ],1
-		  ));
-  }
-  else {
 
-    local *c = {a=>2};
-    local *b = {b=>2};
+ok(testCompare( "Differences 3", $a3, $b3,
+		[
+		 'change(%test@0$%a,%test@0$%a)="toto"/=>"titi"',
+		 'add(%test@0$,%test@0$%b)=3',
+		 'change(%test@1,%test@1)=\3321/=>{"d"=>12,"o"=>5}',
+		 'change(%test@2,%test@2)={"d"=>12,"o"=>5}/=>543',
+		 'change(%test@3,%test@3)=55/=>\3321'
+		],
+		1
+	      ));
 
-    ok(testCompare( "post patch move 5",
-		    \*c, \*b,
-		    [
-		     'remove(*main::c%a,*main::b)=2',
-		     'add(*main::c,*main::b%b)=2'
-		    ]
-		    # Complex mode
-		    # [ 'move(*main::c%a,*main::b%b)=' ],1
-		  ));
 
-  }
+o_complex(1);
+ok(testCompare( "Differences 3", $a3, $b3,
+		[
+		 'change(%test@0$%a,%test@0$%a)="toto"/=>"titi"',
+		 'add(%test@0$,%test@0$%b)=3',
+		 'move(%test@1,%test@3)=',
+		 'move(%test@2,%test@1)=',
+		 'remove(%test@3,%test)=55',
+		 'add(%test,%test@2)=543'
+		],
+		1
+	      ));
 
-}
+
+my $a4 =
+  [
+   \{'toto' => 12},
+  33,
+  {
+   o=>5,
+   d=>12
+  },
+  'titi'
+];
+
+my $b4 = [
+	  \{'toto' => 12,E=>3},
+  {
+   d=>12,
+   o=>5
+  },
+  'titi'
+];
+
+
+o_complex(0);
+ok(testCompare( "Differences 4", $a4, $b4,
+		[
+		 'add(@0$,@0$%E)=3',
+		 'change(@1,@1)=33/=>{"d"=>12,"o"=>5}',
+		 'change(@2,@2)={"d"=>12,"o"=>5}/=>"titi"',
+		 'remove(@3,)="titi"'
+		],
+		1
+	      ));
+
+
+o_complex(1);
+ok(testCompare( "Differences 4'", $a4, $b4,
+		[
+		 'add(@0$,@0$%E)=3',
+		 'remove(@1,)=33',
+		 'move(@2,@1)=',
+		 'move(@3,@2)='
+		],
+		1
+	      ));
+
+# test the post replacement of a add/remove by a move
+
+ok(testCompare( "post patch move 1",
+		{a=>2},
+		{b=>2},
+		[ 'move(%a,%b)=' ],1
+	      ));
+
+ok(testCompare( "post patch move 2",
+		\ {a=>2},
+		\ {b=>2},
+		[ 'move($%a,$%b)=' ],1
+	      ));
+
+ok(testCompare( "post patch move 3", # reg
+		[2],
+		{b=>2},
+		[ 'change(,)=[2]/=>{"b"=>2}' ],1
+	      ));
+
+ok(testCompare( "post patch move 4", # limit
+		[{a=>2,e=>2},1],
+		[{b=>2},1,{e=>2}],
+		[ 'move(@0%a,@0%b)=',
+		  'remove(@0%e,@0)=2',
+		  'add(,@2)={"e"=>2}'
+		],1
+	      ));
+o_complex(0);
+
+local *c = {a=>2};
+local *b = {b=>2};
+
+ok(testCompare( "post patch move 5",
+		\*c, \*b,
+		[
+		 'remove(*main::c%a,*main::b)=2',
+		 'add(*main::c,*main::b%b)=2'
+		]
+		# Complex mode
+		# [ 'move(*main::c%a,*main::b%b)=' ],1
+	      ));
 END_TEST_MODULE('Compare');
 
 
@@ -1723,37 +1778,37 @@ o_complex(0);
 		    [['%','toto2','/','A','=','toto two']]));
 
 
-  o_key({
-	 CRC => {regexp=>$crc_k,
-		 eval=>'{crc32}',
-		 priority=>1
-		},
-	 SZ  => {regexp=>$sz_k,
-		 eval=>'{sz}',
-		 priority=>2
-		},
-	 '.'  => {regexp=>['%','content'],
-		  eval=>'{content}',
-		  priority=>3
-		 }
-	});
+o_key({
+       CRC => {regexp=>$crc_k,
+	       eval=>'{crc32}',
+	       priority=>1
+	      },
+       SZ  => {regexp=>$sz_k,
+	       eval=>'{sz}',
+	       priority=>2
+	      },
+       '.'  => {regexp=>['%','content'],
+		eval=>'{content}',
+		priority=>3
+	       }
+      });
 
-  ok(testPathSearch("Search Complex key 3",$fs1,
-		    ['/','CRC','=',4562],
-		    [['/','.','%','dir1','/','.','%','file1','/','CRC','=',4562]]));
+ok(testPathSearch("Search Complex key 3",$fs1,
+		  ['/','CRC','=',4562],
+		  [['/','.','%','dir1','/','.','%','file1','/','CRC','=',4562]]));
 
 
-  ok(testSearch("Search Complex key 4",
-    $fs1,
-    ['/','CRC','=',123],
-    -2,
-    [ $fs1->{'content'}{'dir1'} ]));
+ok(testSearch("Search Complex key 4",
+	      $fs1,
+	      ['/','CRC','=',123],
+	      -2,
+	      [ $fs1->{'content'}{'dir1'} ]));
 
-  ok(testSearch("Search Complex key 5",
-		$fs1,
-		['/','CRC','=',4562],
-		-2,
-		[ $fs1->{'content'}{'dir1'}{'content'}{'file1'} ]));
+ok(testSearch("Search Complex key 5",
+	      $fs1,
+	      ['/','CRC','=',4562],
+	      -2,
+	      [ $fs1->{'content'}{'dir1'}{'content'}{'file1'} ]));
 
 
 
@@ -1768,45 +1823,40 @@ o_complex(0);
 #
 #############################################
 
-
-  testCompare( "key compare",
-	       {
-		crc32=>20,sz=>45,
-		content=>{op=>'ds'}
-	       },
-	       {
-		crc32=>24,sz=>45,
-		content=>{op=>'ds'}
-	       },
-	       [ 'change(/CRC,/CRC)=20/=>24' ]
-	     );
-
+testCompare( "key compare",
+	     {
+	      crc32=>20,sz=>45,
+	      content=>{op=>'ds'}
+	     },
+	     {
+	      crc32=>24,sz=>45,
+	      content=>{op=>'ds'}
+	     },
+	     [ 'change(/CRC,/CRC)=20/=>24' ]
+	   );
 
 
-  title('test to modify a returned node') and do {
-    my @nodes = path($fs2,
-		     [ search($fs2,['/','CRC','=',4562])
-		     ],-2);	
+title('test to modify a returned node') and do {
+  my @nodes = path($fs2,
+		   [ search($fs2,['/','CRC','=',4562])
+		   ],-2);	
 
-    $nodes[0]->{sz}=46; # change size of the pointed file with CRC 4562
-  };
+  $nodes[0]->{sz}=46; # change size of the pointed file with CRC 4562
+};
 
 
-  o_complex(1);
+o_complex(1);
 
-  # Power
+# Power
 
-  #warn Dumper($fs1).' Vs '.Dumper($fs2);
+#warn Dumper($fs1).' Vs '.Dumper($fs2);
 
-  testCompare( "key compare 2", $fs1 , $fs2,
-	       [ 'add(/.%dir1/.,/.%dir1/.%docs)={"sz"=>45,"content"=>{},"crc32"=>0}',
-		 'change(/.%dir1/SZ,/.%dir1/SZ)=2/=>1',
-		 'change(/.%dir1/.%file1/SZ,/.%dir1/.%file1/SZ)=4/=>46',
-
-		 'move(/.%dir1/.%test.doc,/.%test.doc)=',
-		 'move(/.%dir1/.%test.doc/CRC,/.%test.doc/CRC)=',  # TODO : remove them (OPTIMIZATION at the end of compare)
-		 'move(/.%dir1/.%test.doc/SZ,/.%test.doc/SZ)='   # TODO : remove them (OPTIMIZATION at the end of compare)
-	       ],1);
+testCompare( "key compare 2", $fs1 , $fs2,
+	     [ 'add(/.%dir1/.,/.%dir1/.%docs)={"sz"=>45,"content"=>{},"crc32"=>0}',
+	       'change(/.%dir1/SZ,/.%dir1/SZ)=2/=>1',
+	       'change(/.%dir1/.%file1/SZ,/.%dir1/.%file1/SZ)=4/=>46',
+	       'move(/.%dir1/.%test.doc,/.%test.doc)='
+	     ],1);
 
 #  Results remain :
         #remove(/.%dir1/.%test.doc,/.%dir1/.)={"sz"=>5,"crc32"=>8}

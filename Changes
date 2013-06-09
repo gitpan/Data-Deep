@@ -30,3 +30,10 @@ Revision history for Perl extension Data::DeepManip.
 0.08
 	Bug #83259 : https://rt.cpan.org/Public/Bug/Display.html?id=83259
 	=> function _escape_path removed as it is useless
+
+0.09	remove space after \ in reference to hash or arry in deep.t test	
+
+0.10 dim.  9 juin 2013 11:01:26
+	deep.t : compare loop (for(0..1) removed) for clearest view on errors related to tests in both complex or not (o_complex)
+	also add warn if failure occurs instead of keeping in debug mode (o_debug/bug) which is verbose and not helping for FAILS tests
+
