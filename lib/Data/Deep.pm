@@ -34,33 +34,35 @@ use Data::Deep qw(:DEFAULT :convert :config);
 
 o_complex(1);        # deeper analysis results
 
-print join("\n", domPatch2TEXT( compare($dom1,$dom2) ) );
+print join("\n", domPatch2TEXT( @patch ) );
 
 @patch = (
-	  'add(@0$,@0$%E)=3',
-	  'remove(@1,)=33',
-	  'move(@2,@1)=',
-	  'move(@3,@2)='
-	);
+ 'add(@0$,@0$%E)=3','remove(@1,)=33','move(@2,@1)=','move(@3,@2)='
+);
 
 $dom2 = applyPatch($dom1,@patch);
 
-$h_toto = search $dom1, '@1'
+@list_found = search($dom1, ['@',1])
+
+@list_found = search($dom1, patternText2Dom('@1'))
+
+
 
 =head1 DESCRIPTION
 
-Data::Deep provides search, compare and applyPatch functions which are very
-usefull for complex Perl Data Structure manipulation (ref, hash or array,
-array of hash, blessed object and siple scalar).
-Filehandles and sub functions are not compared (just type is considered).
+Data::Deep provides search, path, compare and applyPatch functions which may operate on complex Perl Data Structure 
+for introspection, usage and manipulation 
+(ref, hash or array, array of hash, blessed object and siple scalar).
+Package, Filehandles and functions are partially supported (type and location is considered).
+Loop circular references are also considered as a $t1 variable and partially supported.
 
 
 =head2 path definition
 
-First thing to understand is the definition of a path expression,
-it identify a node in a complex Perl data structure.
+path expression identify the current element node location in a complex Perl data structure.
+pattern used in function search is used to match a part of this path.
 
-Path is composed of the following elements :
+Path is composed internally of an array of following elements :
 
    ('%', '<key>') to match a hash table at <key> value
    ('@', <index>) to match an array at specified index value
@@ -69,17 +71,21 @@ Path is composed of the following elements :
 
    ('$') to match a reference
    ('&') to match a code reference
-
-   ('/') to match a key defined by key() function
+   ('$loop') to match a loop reference (circular reference)
 
    ('=' <value>) to match the leaf node <value>
+
+In text mode a keyname may be defined by entering an hash-ref of keys in o_key()
+then '/keyname' will appears in the path text results or could be provided 
+to convert function textPatch2dom() and patternText2dom()
+
 
 Modifier <?> can be placed in the path with types to checks :
 
 EX:
 
-   ?%  : match with hash-table content (any key is ok)
-   ?@  : match with an array content (any index will match)
+   ?%  : match with hash-table content (any key match)
+   ?@  : match with an array content (any index match)
    ?=  : any value
    ?*  : any glob type
    ?$  : any reference
@@ -90,20 +96,28 @@ Evaluation function :
    sub{... test with $_ ... } will be executed to match the node
    EX: sub { /\d{2,}/ } match numbers of minimal size of two
 
+Patch is a directional operation to apply difference between two nodes resulting from compare($a, $b)
+Patch allow the $a complex perl data structure to be changed to $b using applyPatch($a,@patch)
 
-Patch is an operation between two nodes, Patch is composed of :
-   - An action :
+Each Patch operation is composed of :
+   - an action :
         'add' for addition of an element from source to destination
         'remove' is the suppression from source to destination
         'move' if possible the move of a value or Perl Dom
         'change' describe the modification of a value
-   - a source path
-   - a destination path
+        'erase' is managed internally for array cleanup when using 'move'
+   - a source path on which the value is taken from
+   - a destination path on which is applied the change (most of the time same as source)
 
-Three patch formats can be use : dom (internal), text (need convertion) and
-ihm (output format format only) :
+Three patch formats can be use :
+   - dom : interaction with search, path, compare, ApplyPatch
+   - text : programmer facilities to use a single scalar for a patch operation
+   - ihm : a small readble IHM text aim for output only
 
-   DOM  : Internal dom patch is an hash-table :
+Convert function may operation the change between this formats.
+
+
+   DOM  : dom patch hash-ref sample
 
         EX: my $patch1 =
                      { action=>'change',
@@ -120,22 +134,17 @@ ihm (output format format only) :
           change(<path source>,<path destination>)=<val src>/=><val dest>
           move(<path source>,<path destination>)
 
-   IHM  : Visual output
-
 
 =head2 Important note :
 
-* search() and path() functions use paths in both format :
-      TEXT
-            EX: '@1%r=432')
+* search() and path() functions use paths in "dom" format :
 
-  or
       DOM (simple array of elements described above)
             EX: ['@',1,'%','r','=',432]
 
 * applyPath() can use TEXT or DOM patch format in input.
 
-* compare() produce dom patch format in output.
+* compare() produce "dom" patch format in output.
 
 
 All function prefer the use of dom (internal format) then no convertion is done.
@@ -154,20 +163,19 @@ See conversion function
 # General version and rules
 ##############################################################################
 use 5.004;
-$VERSION = '0.10';
+$VERSION = '0.11';
 #$| = 1;
 
 ##############################################################################
 # Module dep
 ##############################################################################
-use Data::Dumper;
-# c:\Perl\lib\Data\Dumper.pm  line 229
+
 use Carp;
 use strict;
-use warnings;
+no warnings;
 no integer;
 no strict 'refs';
-no warnings;
+
 
 use overload; require Exporter; our @ISA = qw(Exporter);
 
@@ -175,12 +183,14 @@ use overload; require Exporter; our @ISA = qw(Exporter);
 our @DEFAULT =
   qw(
      travel
-     visitor_dumper
-     visitor_search
+     visitor_patch
+     visitor_dump
+     visitor_perl_dump
      search
      compare
      path
      applyPatch
+     __d
     );
 
 our @EXPORT = @DEFAULT;
@@ -196,9 +206,11 @@ our @CONFIG =
 
 our @CONVERT =
   qw(
-     textPatch2DOM
-     domPatch2TEXT
-     domPatch2IHM
+      patternText2Dom
+      patternDom2Text
+      textPatch2DOM
+      domPatch2TEXT
+      domPatch2IHM
     );
 
 our @EXPORT_OK = (@DEFAULT,
@@ -323,23 +335,16 @@ sub debug {
 
 ##############################################################################
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
-sub  __d { # Data::Dumper / escaped for eval
+sub  __d {
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
-  local $Data::Dumper::Useqq = 1;  # quot \n ...
-  local $Data::Dumper::Terse = 1;  # no $VAR1
-  local $Data::Dumper::Indent= 0;
-#  local $Data::Dumper::Quotekeys = 1;
-#  local $Data::Dumper::Purity = 1;
-#  local $Data::Dumper::Indent = 1;
-#  local $Data::Dumper::Deparse = 1;
-
-  my $t = Dumper(shift());
+  my $res = join('', travel(shift(), \&visitor_perl_dump));
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
-  #  $t=~s/\'/\'/g;
-  #my $p='\''.substr(substr($t,0,length($t)-2),1).'\'';
-  #print "\nDEBUG (".$t.") $p = ".eval($t)."\n";die $@ if ($@);
-  return $t;
+  $res =~ s/
+	     ([\000-\037]|[\177-\377])
+	   /sprintf("\\%o", ord ($1))/egx;
+
+  return $res;
 }
 
 ##############################################################################
@@ -350,97 +355,6 @@ sub  __d { # Data::Dumper / escaped for eval
 ###############################################################################
 
 
-
-##############################################################################
-#{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
-my $pathText2Dom = sub($) { # text path convertion to dom
-#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
-  my @pathTxt = (split '',shift());
-#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
-  my @path;
-  my $val;
-  #debug "pathText2Dom(".join('',@pathTxt).')';
-  while (@pathTxt) {
-    $_ = shift @pathTxt;
-    /([%\@\$\=\|\*\&\/])/ and do {
-      ($path[-1] eq '@') and $val = int($val);
-      push(@path,$val) if ($val ne '');
-      $val='';
-      push(@path,$1);
-    }
-      or
-	$val .= $_;
-  }
-  ($path[-1] eq '@') and $val = int($val);
-  push(@path,$val) if ($val ne '');
-
-  #debug '=>'.join('.',@path);
-  return [@path];
-};
-
-##############################################################################
-#{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
-my $patchDOM = sub($$$;$$) {
-#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
-  my $action = shift;
-  my $p1= shift();
-  my $p2= shift();
-  my $v1 = shift();
-  my $v2 = shift();
-#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
-
-  my $dom = {};
-  $dom->{action} = $action;
-  $dom->{path_orig} = $p1;
-  $dom->{path_dest} = $p2;
-  $dom->{val_orig}  = $v1;
-  $dom->{val_dest}  = $v2;
-
-  return $dom;
-};
-
-
-#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
-##############################################################################
-#{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
-my $patchText=sub ($$$$$) {
-#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
-  my $action = shift;
-  my @p1=@{shift()};
-  my @p2=@{shift()};
-  my $v1 = shift();
-  my $v2 = shift();
-#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
-
-  my $patch = $action
-    .'('
-      .join('',@p1)
-	.','
-	  .join('',@p2)
-	    .')=';
-
-  if (($action eq 'remove') or ($action eq 'change')) {
-    $v1 = __d($v1);
-    $v1 =~ s|/=>|\/\\054\>|g;
-    $v1 =~ s/\s=>\s/=>/sg;
-    $patch .= $v1;
-  }
-
-  ($action eq 'change') and $patch .= '/=>';
-
-  if (($action eq 'add') or ($action eq 'change')) {
-    $v2 = __d($v2);
-    $v2 =~ s|/=>|\/\\054\>|g;
-    $v2 =~ s/\s=>\s/=>/sg;
-    $patch .= $v2;
-  }
-  return $patch;
-};
-
-
-# sub patchIHM {
-
-
 ##############################################################################
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
 my $matchPath = sub {
@@ -449,26 +363,11 @@ my $matchPath = sub {
   my @where=@_;    # current path
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
-  #warn 'matchPath('.join(' ',@where).' , '.join(' ',@pattern).')';
+  # warn 'matchPath('.join(' ',@where).' , '.join(' ',@pattern).')';
 
-  # Great optimization
-  unless (defined $CFG->{o_key}) {
-    my ($wh,$pt) = (
-		    join('',@where),
-		    join('',@pattern)
-		 );
-
-    my $idx = rindex($wh,$pt);
-    if (($idx!=-1 and (length($wh) - $idx)==length($pt))) {
-      # ???if ($wh=~/${pt}(?=[%@\$*|=]?.*)$/) {
-	#warn "Matched optimized  !";
-	return 1;
-	# }
-    }
-  }
 
   my $ok;
-  #warn 'matchPath:LongAlgo('.join(' ',@where).' , '.join(' ',@pattern).')';
+  # warn 'matchPath:LongAlgo( '.join(' ',@pattern).', '.join(' ',@where).' )';
   my $i = 0;
  PATH:while ($i<=$#where) {
 
@@ -479,25 +378,19 @@ my $matchPath = sub {
 
       ### CURRENT PATH
       my $t_where = $where[$i++]; # TYPE
-      my $v_where;                # VALUE
 
       ## PATTERN
       my $t_patt = $pattern[$j++]; # TYPE
-      my $v_patt;
+
+      if ($t_patt eq '/') {
+        die 'internal matchPath('.join('',@pattern).') : key usage is only in textual format (use Text and convertion patternText2Dom)';
+      }
 
       #print "$t_where =~ $t_patt : ";
-#print $t_where;
+
       (index($t_patt,$t_where)==-1) and last PATTERN; # type where should be found in the pattern
 
-      my $key;
-      if ($t_where eq '/') {
-        $key = $where[$i++]
-	  or
-	    die 'internal matchPath : key waited in path after /';
-
-	($key ne $pattern[$j++]) and last PATTERN
-      }
-      elsif ($t_where eq '&') { }
+      if ($t_where eq '&') { }
       elsif ($t_where eq '$') { }
       elsif ($t_where eq '=' or
 	     $t_where eq '%' or
@@ -506,21 +399,29 @@ my $matchPath = sub {
 	     $t_where eq '|'
 	    ) {
 
-	$v_where = $where[$i++];
+	my $v_where = $where[$i++];
 
 	unless (substr($t_patt,0,1) eq '?') {
 #print 'v';
 
-	  $v_patt = $pattern[$j++];
+	  my $v_patt = $pattern[$j++];
 
 	  if (ref($v_patt) eq 'CODE') { # regexp or complexe val
             local ($_) = ($v_where);
 	    $v_patt->($_) or last PATTERN
 	  }
-	  elsif (ref($v_patt) and (Dumper($v_patt) ne Dumper($v_where))) {
+	  elsif (ref($v_patt) and (__d($v_patt) ne __d($v_where))) {
 	    last PATTERN;
 	  }
-	  elsif ($v_patt ne $v_where) {
+	  elsif (!defined($v_where) and defined($v_patt)) {
+	    # print '!';
+	    last PATTERN;
+	  }
+	  elsif (defined($v_where) and !defined($v_patt)) {
+	    # print '!';
+	    last PATTERN;
+	  }
+	  elsif (defined($v_where) and defined($v_patt) and $v_patt ne $v_where) {
 	    # print '!';
 	    last PATTERN;
 	  }
@@ -549,57 +450,13 @@ my $matchPath = sub {
   return undef;
 };
 
-
-
 ##############################################################################
 # KEY DCL :
-our $CFG;
+
 sub o_key {
   @_ and $CFG->{o_key}=shift()
     or return $CFG->{o_key};
 }
-
-##############################################################################
-#{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
-my $isKey = sub {
-#{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
-  my @path=@_;
-#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
-
-
-  (defined $CFG->{o_key}) or return @path;
-
-  my $sz_path = scalar(@path);
-
-  # debug "\n###".join('.',@{$path}).' '.join('|',keys %{$CFG->{o_key}});    <>;
-
-  my %keys=%{$CFG->{o_key}};
-
-  my $k;
-  foreach $k (
-		 sort {
-		   ($keys{$a}{priority} - $keys{$b}{priority})
-		 } keys %keys)
-    {
-      my $match = $keys{$k}{regexp};
-      #warn "\n=$k on ".join('',@path);
-
-      my $min_index = $matchPath->($match, @path);
-
-      if (defined $min_index) {
-	# debug " -> key($k -> ".join(' ',@{$match}).")  = $min_index\n";
-
-	# replace the (matched key expression) by ('/' , <key name>)
-
-	splice @path, $min_index, $sz_path, '/',$k;
-	#warn "__key $k -> ".join('.',@path)."\n";
-	return @path;
-      }
-    }
-
-  return @path;
-};
-
 
 =item I<o_key>(<hash of key path>)
 
@@ -633,6 +490,29 @@ depth    : how many upper node to return from the current match node
 
 
 
+
+##############################################################################
+#{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
+my $patchDOM = sub($$$;$$) {
+#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+  my $action = shift;
+  my $p1= shift();
+  my $p2= shift();
+  my $v1 = shift();
+  my $v2 = shift();
+#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+
+  my $dom = {};
+  $dom->{action} = $action;
+  $dom->{path_orig} = $p1;
+  $dom->{path_dest} = $p2;
+  $dom->{val_orig}  = $v1;
+  $dom->{val_dest}  = $v2;
+
+  return $dom;
+};
+
+
 ##############################################################################
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
 my $path2eval__ = sub {
@@ -644,7 +524,7 @@ my $path2eval__ = sub {
 
   my $evaled = $first_eval;
 
-  my $dbg_head = __PACKAGE__."::path2eval__($evaled,$deepness,".join(',',@_).") : ";
+  my $dbg_head = __PACKAGE__."::path2eval__(".join(',',@_).") : ";
   debug $dbg_head;
   my $max=$#_;
 
@@ -743,10 +623,10 @@ sub loop_det($;@) {
   ref($r) or return 0;
 
   $r = $r.' ';
-  #defined *$d1{SCALAR}
 
   if (exists($loop_ref{$r})) {
     debug "loop_det => LOOP".join('',@_) ;
+
     return 1;
   }
 
@@ -762,6 +642,8 @@ sub loop_det($;@) {
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
+
+
 =head2 Operation Methods
 
 =over 4
@@ -770,15 +652,52 @@ sub loop_det($;@) {
 
 
 #############################################################
-sub visitor_dumper { # exemple of visitor
+sub visitor_patch {
+#                  Visitor which create patch for dom creation
 #############################################################
     my $node = shift();
     my $depth = shift;
+    my $open = shift;
     my @cur_path = @_;
 
-    my $dump = join(' ',@cur_path);
+    my $path = join('',@cur_path);
 
-    return $dump;
+# warn $depth.($open==1?' > ':(defined($open)?' < ':'   ')).join('',@cur_path).' : '.ref($node);
+
+    my $ref = ref($node);
+    if ($ref) {
+      if (!defined $open ) {
+	($_[-1] eq '$loop') and return 'loop('.$path.','.$path.')=';
+	($ref eq 'CODE') and return 'add('.$path.','.$path.')=sub{}';
+	#($ref eq 'REF') and return 'add('.$path.','.$path.')={}';
+	($ref eq 'GLOB') and return 'new '.$_[-1].'()';
+      }
+      elsif ($open ==1 ) {
+	($ref eq 'ARRAY') and return 'add('.$path.','.$path.')=[]';
+	($ref eq 'HASH') and return 'add('.$path.','.$path.')={}';
+	return ;
+      }
+      elsif ($open ==0 ) {
+	#($ref eq 'ARRAY') and return ']';
+	#($ref eq 'HASH') and return '}';
+	return;
+      }
+
+    }
+
+    defined($node) and $node = "'$node'" or $node = 'undef';
+
+
+    pop(@cur_path);
+    pop(@cur_path);
+    $path = join('',@cur_path);
+    pop(@cur_path);
+    pop(@cur_path);
+
+    ($_[-2] eq '=') and return 'add('.join('',@cur_path).','.$path.')='.$node;
+
+
+    return;
 
     # get the source code => How ?
 #   (ref($node) eq 'CODE') and return $dump.'CODE';#(&$node());
@@ -786,12 +705,106 @@ sub visitor_dumper { # exemple of visitor
 
 }
 
+
+#############################################################
+sub visitor_perl_dump {
+#                  Visitor to dump Perl structure
+#############################################################
+    my $node = shift();
+    my $depth = shift;
+    my $open = shift;
+    my @cur_path = @_;
+
+    my $path = @cur_path;
+
+    my $ref = ref($node);
+
+    my ($realpack, $realtype, $id) =
+      (overload::StrVal($node) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
+
+    # warn $depth.($open==1?' > ':(defined($open)?' < ':'   ')).join('',@cur_path).' : '.ref($node)." ($realpack/$realtype/$id)";
+
+
+    if ($ref) {
+      if (!defined $open ) {
+	($realpack and $realtype and $id) and $ref = $realtype;
+
+	($ref eq 'REF' or $ref eq 'SCALAR') and return '\\';
+
+	($ref eq 'CODE') and return 'sub { "DUMMY" }';
+
+	if ($_[-1] eq '$loop') {
+	  return '$t1';
+	}
+
+	if ($ref eq 'HASH' and $_[-2] eq '%') {
+	  my @keys = sort {$a cmp $b} keys(%$node);
+	  my $is_first = ($_[-1] eq $keys[0]);
+
+	  $is_first 
+	    and 
+	      return '\''.$_[-1].'\'=>';
+
+	  return ',\''.$_[-1].'\'=>';
+	}
+	($ref eq 'ARRAY' and $_[-2] eq '@' and $_[-1] != 0) and return ',';
+	return;
+      }
+      elsif ($open ==1 ) {
+	($ref eq 'ARRAY') and return '[';
+	($ref eq 'HASH') and return '{';
+
+	($realtype eq 'ARRAY') and return 'bless([';
+	($realtype eq 'HASH') and return 'bless({';
+      }
+      elsif ($open ==0 ) {
+	($ref eq 'ARRAY') and return ']';
+	($ref eq 'HASH') and return '}';
+
+	($realtype eq 'ARRAY') and return "] , '$ref')";
+	($realtype eq 'HASH') and return "} , '$ref')";
+
+      }
+    }
+
+    (defined($node)) or return 'undef';
+
+    if ($_[-2] eq '=') {
+      $node=~s/\'/\\\'/g;
+      ($node=~/^\d+$/) and return $node;
+      return '\''.$node.'\'';
+    }
+
+    return;
+
+  }
+
+
+#############################################################
+sub visitor_dump {
+#                  Visitor to dump Perl structure
+#############################################################
+    my $node = shift();
+    my $depth = shift;
+    my $open = shift;
+    my @cur_path = @_;
+
+    my $path = join('',@cur_path);
+
+    my ($realpack, $realtype, $id) =
+      (overload::StrVal($node) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
+
+    return $depth.($open==1?' > ':(defined($open)?' < ':'   ')).join('',@cur_path).' : '.ref($node); #." ( $realpack/$realtype/$id)";
+  }
+
+
 #############################################################
 # IDEA : sub visitor_search { 
 # IDEA : searching visitor to replace search
 #############################################################
 #    my $node = shift();
 #    my $depth = shift;
+#    my $open = shift;
 #    my @cur_path = @_;
 
 #    if (defined $matchPath->($pattern, @cur_path)) {
@@ -808,7 +821,7 @@ sub travel($;@) {
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
 
   my $where=shift();
-  my $visitor = shift() || \&visitor_dumper;
+  my $visitor = shift() || \&visitor_patch;
   my $depth = shift()||0;
   my @path = @_;
 
@@ -834,16 +847,31 @@ I<EX:>
 =cut
 
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
-  my $arr = wantarray();
-  @path or %loop_ref=();
+  if (@path) {
+    debug "travel( dom=",@path, ' is ',ref($where),")";
+    #debug "return ".($arr && ' ARRAY ' || 'SCALAR');
+  }
+  else {
+    %loop_ref=();
+  }
 
-  #debug "travel()".($arr && ' return ARRAY ');
+  #
 
-  my @list;
-  my $found=undef;
+  sub __appendVisitorResult {
+    my $is_array = shift();
+    my @list;
+
+    foreach (@_) {
+      if (defined $_) {
+	$is_array or return $_;
+	push(@list, $_);
+      }
+    }
+    return @list;
+  }
 
   my ($k,$res);
-
+  my @res;
 
   #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
@@ -853,9 +881,10 @@ I<EX:>
   ######################################## !!!!! Modules type resolution
 #  if (index($ref_type,'::')!=-1) {
   my ($realpack, $realtype, $id) =
-    (overload::StrVal($where) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
+    (overload::StrVal(scalar($where)) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
 
-  if ($realpack) {
+  if ($realpack and $realtype and $id) {
+    push @path,'|',$ref_type;
 
     my $y = undef;
     if ($realtype eq 'SCALAR') {
@@ -868,88 +897,124 @@ I<EX:>
       $y=\@$where
     }
     else {
-      die $y
+      #die $realtype.' : '.$where;
     }
-    $where = $y;
 
     #debug ref($y)." = $realpack -> real $realtype, $id";
 
-    push @path,'|',$ref_type;
-
+    $where=$y;
     $ref_type = $realtype;
   }
 
-  debug "travel__ ( dom=",join('',@path), ' is ',$ref_type,")";
 
   ######################################## !!!!! Loop detection
   my @p;
 
   if (loop_det($where)) {
-    @p = $isKey->(@path, '$loop');
-    $res = &$visitor($where, $depth , @p);
-    $arr and (push(@list, $res)) or $found=$res;
+
+    return __appendVisitorResult(wantarray(), @res,
+				 &$visitor($where, $depth, undef , (@path, '$loop')));
+
   }
   else {
     ######################################## !!!!! SCALAR TRAVEL
     if (!$ref_type) {
-      @p = $isKey->(@path, '=', $where);
-      $res = &$visitor($where, $depth , @p);
-      $arr and (push(@list, $res)) or $found=$res;
+
+      return __appendVisitorResult(wantarray(),
+				   @res, 
+				   &$visitor($where, $depth , undef, (@path, '=', $where)));
 
     }
     ######################################## !!!!! HASH TRAVEL
     elsif ($ref_type eq 'HASH')
       {
+
+	@res = __appendVisitorResult(wantarray(),
+				     @res, 
+				     &$visitor($where, $depth, 1, @path));
+
 	my $k;
 	foreach $k (sort {$a cmp $b} keys(%{ $where })) {
-	  @p = $isKey->(@path, '%', $k);
+	  @p = (@path, '%', $k);
 
-          $res = &$visitor($where, $depth, @p);
-          $arr and (push(@list, $res)) or $found=$res;
+	  @res = __appendVisitorResult(wantarray(),
+				       @res,
+				       &$visitor($where, $depth, undef, @p)
+				      );
 
-	  push(@list, travel($where->{$k},$visitor,$depth+1, @p));
+	  @res = __appendVisitorResult(
+				       wantarray(),
+				       @res,
+				       travel($where->{$k},$visitor,$depth+1, @p)
+				      );
 	}
+
+	return __appendVisitorResult( wantarray(),
+				      @res,
+				      &$visitor($where, $depth, 0, @path)
+				    );
+
       }
     ######################################## !!!!! ARRAY TRAVEL
     elsif ($ref_type eq 'ARRAY')
       {
+        $res = &$visitor($where, $depth, 1, @path);
+
+	@res = __appendVisitorResult( wantarray(), @res, $res );
+
 	for my $i (0..$#{ $where }) {
 	  #print "\narray  $i (".$where->[$i].','.join('.',@p).")\n" if (join('_',@p)=~ /\@_1_\%_g_/);
-	  @p = $isKey->(@path, '@', $i);
-          $res = &$visitor($where, $depth, @p);
-          $arr and (push(@list, $res)) or $found=$res;
+	  @p = (@path, '@', $i);
 
-	  push(@list, travel($where->[$i],$visitor,$depth+1, @p));
+	  @res = __appendVisitorResult(wantarray(),
+				       @res,
+				       &$visitor($where, $depth, undef, @p)
+				      );
+
+	  @res = __appendVisitorResult(
+				       wantarray(),
+				       @res,
+				       travel($where->[$i],$visitor,$depth+1, @p)
+				      );
+
 	}
+
+	return __appendVisitorResult( wantarray(),
+				      @res,
+				      &$visitor($where, $depth, 0, @path)
+				    );
+
       }
     ######################################## !!!!! REFERENCE TRAVEL
     elsif ($ref_type eq 'REF' or $ref_type eq 'SCALAR')
       {
-	 @p = $isKey->(@path, '$');
+	@p = (@path, "\$");
 
-        $res = &$visitor($where, $depth, @p );
-        $arr and (push(@list, $res)) or $found=$res;
+	@res = __appendVisitorResult( wantarray(),
+				      @res,
+				      &$visitor($where, $depth, undef,  @p )
+				    );
 
-	push(@list, travel( ${ $where }, $visitor, $depth+1, @p ));
+	return __appendVisitorResult( wantarray(),
+				      @res,
+				      travel( ${ $where }, $visitor, $depth+1, @p )
+				    );
       }
     else { # others types
       ######################################## !!!!! CODE TRAVEL
       if ($ref_type eq 'CODE') {
-	@p = $isKey->(@path, '&');
+	@p = (@path, '&');
       }
       ######################################## !!!!! GLOB TRAVEL
       elsif ($ref_type eq 'GLOB') {
 	my $name=$$where;
 	$name=~s/b^\*//;
-	@p = $isKey->(@path, '*', $name);
+	@p = (@path, '*', $name);
       }
       ######################################## !!!!! MODULE TRAVEL
       else {
-	die $ref_type;
+	#die $ref_type;
       }
-
-      $res = &$visitor($where, $depth, @p );
-      $arr and (push(@list, $res)) or $found=$res;
 
       ######################################## !!!!! GLOB TRAVEL
       # cf IO::Handle or Symbol::gensym()
@@ -959,15 +1024,25 @@ I<EX:>
 	  my $gval = *$where{$k};
 	  defined($gval) or next;
 	  next if ($k eq "SCALAR" && ! defined $$gval);  # always there
-	  return (@list,travel($gval, $visitor, $depth+1, @p));
+
+	  return __appendVisitorResult( wantarray(),
+					@res,
+					travel($gval, $visitor, $depth+1, undef, @p)
+				      );
 	}
       }
+
+      return __appendVisitorResult(
+				   wantarray(),
+				   @res,
+				   &$visitor($where, $depth, undef, @p )
+				  );
     }
   }
 
-  $arr and return @list;
-  return $found;
+  return ();
 }
+
 
 
 my %circular_ref;
@@ -1018,13 +1093,15 @@ EX:
 =cut
 
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
-#  warn "search($where / ref=".ref($where).','.$nb_occ.' ,'.join('',@path).")";
+  # warn "search($where / ref=".ref($where).','.$nb_occ.' ,'.join('',@path).")";
+
+  @path or %loop_ref=();
 
   (defined($nb_occ) and ($nb_occ<1)) and return ();
 
   my $ref_type = ref $where;
 
-  my @list;
+  my @found;
   my $next = undef;
   my @p;
 
@@ -1036,17 +1113,16 @@ EX:
     my ($realpack, $realtype, $id) =
       (overload::StrVal($where) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
 
-    if ($realpack) {
+    if ($realpack and $realtype and $id) {
       push @path, ('|', $ref_type);
 
       $ref_type = $realtype;
 
-      # warn "$ref_type -> ($realpack, $realtype, $id )";
+      #warn "$ref_type -> ($realpack, $realtype, $id )";
     }
 
 
     ######################################## !!!!! Loop detection
-    @path or %loop_ref=();
 
     if (loop_det($where)) {
       @p = (@path, '$loop');
@@ -1055,51 +1131,50 @@ EX:
     elsif ($ref_type eq 'HASH') {
       my $k;
       foreach $k (sort {$a cmp $b} keys(%{ $where })) {
-	@p = $isKey->(@path, '%', $k);
-	# warn "\n".join('.',@p).">HASH{$k} =".$where->{$k}.' (ref='.ref($where->{$k}).')';
+	@p = (@path, '%', $k);
 
 	if (defined $matchPath->($pattern, @p)) {
-	  push @list,[@p];
+	  push @found,[@p];
 	  defined($nb_occ) and (--$nb_occ<1) and last;
 	}
 	else {
 	  my @res = search($where->{$k}, $pattern, $nb_occ, @p);
-	  @res and push @list,@res;
+	  @res and push @found,@res;
 	}
       }
-      return @list;
+      return @found;
     }
     ######################################## HASH Search
     elsif ($ref_type eq 'ARRAY')
       {
 	for my $i (0..$#{ $where }) {
-	  @p = $isKey->(@path, '@', $i);
+	  @p = (@path, '@', $i);
 
 	  if (defined $matchPath->($pattern, @p)) {
-	    push @list,[@p];
+	    push @found,[@p];
 	    defined($nb_occ) and (--$nb_occ<1) and last;
 	  }
 	  else {
 	    my @res = search($where->[$i], $pattern, $nb_occ, @p);
-	    @res and push @list,@res;
+	    @res and push @found,@res;
 	  }
 	}
-	return @list;
+	return @found;
       }
     ######################################## REF Search
     elsif ($ref_type eq 'REF' or $ref_type eq 'SCALAR') {
-      @p = $isKey->(@path, '$');
+      @p = (@path, '$');
       $next = ${ $where };
     }
     ######################################## CODE Search
     elsif ($ref_type eq 'CODE') {
-      @p = $isKey->(@path, '&');
+      @p = (@path, '&');
     }
     ######################################## GLOB Search
     elsif ($ref_type eq 'GLOB') {
       my $name = $$where;
       $name=~s/^\*//;
-      @p = $isKey->(@path, '*',$name);
+      @p = (@path, '*',$name);
       if (defined *$where{SCALAR} and defined(${*$where{SCALAR}})) {
 	$next = *$where{SCALAR};
       }
@@ -1113,21 +1188,22 @@ EX:
   }
   ######################################
   else { ## !!!!! SCALAR Search
-    @p = $isKey->(@path, '=', $where);
+    @p = (@path, '=', $where);
   }
   ######################################
 
   if (defined $matchPath->($pattern, @p)) {
-    push @list,[@p];
+    push @found,[@p];
     defined($nb_occ) and --$nb_occ;
   }
 
   if ((defined($next))) {
     my @res = search($next, $pattern, $nb_occ, @p);
-    @res and push @list,@res;
+
+    @res and push @found,@res;
   }
 
-  return @list;
+  return @found;
 }
 
 
@@ -1191,14 +1267,16 @@ EX:
   my @nodes;
 
   foreach my $node (@paths) {
-    my @path = @{(ref($node) eq 'ARRAY') && $node || $pathText2Dom->($node)};
+    (ref($node) eq 'ARRAY') or die 'path() : pattern "'.$node.'" should be a Dom pattern ("Dom" internal array, perhaps use patternText2dom)';
+
+    my @path = @{$node};
 
     # perl evaluation of the dom path
     my $e = $path2eval__->('$dom', $father_nb, @path);
 
     my $r = eval $e;
     debug $dom;
-    debug $e.' evaluated to '.Dumper($r);
+    debug $e.' evaluated to '.__d($r);
     die __FILE__.' : path() '.$e.' : '.$@ if ($@);
     push @nodes,$r
   }
@@ -1217,8 +1295,8 @@ sub compare {
 
   my (@p1,@p2,$do_resolv_patch);
   if (@_) {
-    @p1 = $isKey->(@{$_[0]});
-    @p2 = $isKey->(@{$_[1]});
+    @p1 = @{$_[0]};
+    @p2 = @{$_[1]};
   }
   else {
     %loop_ref=();
@@ -1280,8 +1358,7 @@ EX:
 
 	if ($p1->{action} eq 'remove' and
 	    $p2->{action} eq 'add' and
-	    (Dumper($p1->{val_orig}) eq Dumper($p2->{val_dest}))) {
-
+	    (__d($p1->{val_orig}) eq __d($p2->{val_dest}))) {
 
 	  #my @com = searchSuffix__($p1->{path_orig}, $p2->{path_dest}, \@patch);
 	  #@com or next;
@@ -1301,7 +1378,7 @@ EX:
       }
     }
 
-    my $o;
+    my $o = 0;
     while ($o<=$#patch) {
       ($patch[$o]->{action} eq 'erase') and splice(@patch,$o,1) and next;
       $o++
@@ -1311,7 +1388,7 @@ EX:
   }
 
   ###############################################################################
-  debug "\nComparing ORIG(".join('.',@p1,'=',ref($d1)||$d1).") <> DEST(".join('.',@p2,'=',ref($d2)||$d2).")\n";
+  #warn "\nComparing ORIG(".join(@p1,'=',ref($d1)||$d1).") <> DEST(".join('.',@p2,'=',ref($d2)||$d2).")\n";
 
   # ############ ret : 0 if equal / 1 else
   my @msg=();
@@ -1330,7 +1407,7 @@ EX:
     my ($realpack, $realtype, $id) =
       (overload::StrVal($d1) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
 
-    if ($realpack) {
+    if ($realpack and $realtype and $id) {
       my ($realpack2, $realtype2, $id2) =
 	(overload::StrVal($d2) =~ /^(?:(.*)\=)?([^=]*)\(([^\(]*)\)$/);
 
@@ -1347,60 +1424,11 @@ EX:
     }
   }
 
-  ######################################## !!!!! KEY COMPARE
-
-  # DISABLED AND NOT TESTED : very complex use of key for deep comparing
-  ##
-  if (0 and $CFG->{o_key}) {
-
-    # TODO : retrieve the keyname from last isKey call
-    my $key1;
-    my $key2;
-
-    my $k = $CFG->{o_key}{$key1};
-
-    # Depth return (key cfg)
-    my $depth = (exists $k->{depth} && $k->{depth} || 0);
-
-
-    if (!defined $key2 or $key1 ne $key2) {
-      #warn "### search for &$key1 in ".join('',@p2);<>;
-      #@path2 or return ($patchDOM->('remove', \@p1,\@p2 , undef ,undef));
-
-      # @p2 = @{shift @path2};
-    }
-    debug "\nkey compare {{ ".join('.',@p1).' Vs '.join('.',@p2).' }}';
-
-    my $nb_occ=((exists $k->{occ})?$k->{occ}:1);
-
-    # TODO: compare node from keys
-    my @srh1 = search($d1, ['/',$key1], $nb_occ);
-    my @srh2 = search($d2, ['/',$key1], $nb_occ);
-
-    (join('',@srh1) ne join('',@srh2))
-      and 
-	push @msg, $patchDOM->('move', \@srh1,\@srh2);
-
-    my @nodes1 = path($d1, @srh1, $depth);
-    @nodes1 or die "Could'nt find this path ".join('.',map {join('',@{$_})} @srh1).' ! ';
-
-    my @nodes2 = path($d2, @srh2, $depth);
-    @nodes2 or die "Could'nt find this path ".join('.',map {join('',@{$_})} @srh2).' ! ';
-
-
-    my $i;
-    for $i (1..$nb_occ) {
-      push @msg, compare(shift(@nodes1), shift(@nodes2), \@srh1, \@srh2);
-    }
-
-    $do_resolv_patch or return @msg;
-    return resolve_patch(@msg);
-  }
-
   ######################################## !!!!! SCALAR COMPARE
   if (!$ref_type)
     {
-      ($d1 ne $d2) and return ($patchDOM->('change', \@p1,\@p2, $d1,$d2) );
+      (defined($d1) and $d1 ne $d2) and return ($patchDOM->('change', \@p1,\@p2, $d1,$d2) );
+      (!defined($d1) and defined($d2)) and return ($patchDOM->('change', \@p1,\@p2, $d1,$d2) );
       return ();
     }
   ######################################## !!!!! HASH COMPARE
@@ -1420,11 +1448,11 @@ EX:
 	    push @msg,
 	      compare( $d1->{$k},
 		       $d2->{$k},
-		       [$isKey->( @p1, '%',$k) ],
-		       [$isKey->( @p2, '%',$k) ],
+		       [ @p1, '%',$k ],
+		       [ @p2, '%',$k ],
 		     );
 	  } else {
-	    push @msg,$patchDOM->('remove', [ $isKey->(@p1, '%', $k) ] ,\@p2 , $d1->{$k} ,undef)
+	    push @msg,$patchDOM->('remove', [ @p1, '%', $k ] ,\@p2 , $d1->{$k} ,undef)
 	  }
 
 	}#foreach($d1)
@@ -1433,7 +1461,7 @@ EX:
 	next if exists $seen{$k};
 
 	my $v = $d2->{$k};
-	push @msg,$patchDOM->('add', \@p1, [ $isKey->(@p2, '%', $k) ], undef, $v)
+	push @msg,$patchDOM->('add', \@p1, [ @p2, '%', $k ], undef, $v)
       }
 
       $do_resolv_patch or return @msg;
@@ -1461,10 +1489,10 @@ EX:
 
 	foreach $i ($min+1..$#{$d1}) { # $d1 is bigger
 	  # silent just for complexe search mode
-	  push @msg,$patchDOM->('remove', [ $isKey->(@p1, '@', $i) ], \@p2 ,$d1->[$i], undef)
+	  push @msg,$patchDOM->('remove', [ @p1, '@', $i ], \@p2 ,$d1->[$i], undef)
 	}
 	foreach $i ($#{$d1}+1..$#{$d2}) { # d2 is bigger
-	  push @msg,$patchDOM->('add', \@p1, [ $isKey->(@p2, '@', $i) ], undef, $d2->[$i])
+	  push @msg,$patchDOM->('add', \@p1, [ @p2, '@', $i ], undef, $d2->[$i])
 	}
 	return @msg;
       }
@@ -1488,8 +1516,8 @@ EX:
 	    or
 	      @res = compare($val1,
 			     $d2->[$i],
-			     [ $isKey->(@p1, '@',$i) ],
-			     [ $isKey->(@p2, '@',$i) ]);
+			     [ @p1, '@',$i ],
+			     [ @p2, '@',$i ]);
 
 	  if (@res) {	$res_Eq[$i] = [@res]	    }   # (*)
 	  else
@@ -1506,21 +1534,21 @@ EX:
 
 	  unless (compare( $val1,
 			   $d2->[$j],
-			   [ $isKey->(@p1, '@',$i) ],
-			   [ $isKey->(@p2, '@',$j) ]))
+			   [ @p1, '@',$i ],
+			   [ @p2, '@',$j ]))
 	    {  #print " (found) ";
 
 	      $seen_dst[$j] = 1;
-	      $seen_src[$i] = $patchDOM->('move', 
-					  [ $isKey->(@p1, '@', $i) ],
-					  [ $isKey->(@p2, '@', $j) ]);
+	      $seen_src[$i] = $patchDOM->('move',
+					  [ @p1, '@', $i ],
+					  [ @p2, '@', $j ]);
 	      next ARRAY_CPLX;
 	    }
 	}
 	(defined  $seen_src[$i])
 	  or
 	    $seen_src[$i] = $patchDOM->('remove', 
-					[ $isKey->(@p1, '@', $i) ],
+					[ @p1, '@', $i ],
 					\@p2,
 					$val1,
 					undef
@@ -1536,7 +1564,7 @@ EX:
 
 	$seen_dst[$i] = $patchDOM->('add',
 				    \@p1,
-				    [ $isKey->(@p2, '@', $i) ], 
+				    [ @p2, '@', $i ],
 				    undef, 
 				    $d2->[$i]
 				   )
@@ -1575,8 +1603,8 @@ EX:
       }
       else {
 	@msg = ( compare($$d1, $$d2,
-			 [ $isKey->(@p1, '$') ],
-			 [ $isKey->(@p2, '$') ])
+			 [ @p1, '$' ],
+			 [ @p2, '$' ])
 	       );
       }
       $do_resolv_patch or return @msg;
@@ -1649,6 +1677,8 @@ EX:
   return ();
 }
 
+
+
 ##############################################################################
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
 sub applyPatch($@) { # modify a dom source with a patch
@@ -1678,28 +1708,28 @@ EX:
   debug 'applyPatch('.__d($dom).') :';
   my (@remove,@add,@change,@move);
 
-  while (@_) { # ordering the patch operations
-    my $p = pop;
+  my $p;
+  foreach $p (@_) { # ordering the patch operations
+    defined($p) or next;
+    my $dom_patch = $p;
 
     (ref($p) eq 'HASH')
-      or ($p)=textPatch2DOM($p);
-    debug(domPatch2TEXT($p));
+      or ($dom_patch) = textPatch2DOM($p);
 
-    eval 'push @'.$p->{action}.', $p;';
+    debug(domPatch2TEXT($dom_patch));
+
+    eval 'push @'.$dom_patch->{action}.', $dom_patch;';
     $@ and die 'applyPatch() : '.$@;
   }
 
   my ($d,$t);
-  local $Data::Dumper::Purity=1;
 
   my ($d1,$d2,$d3,$d4,$d5);
   my ($t1,$t2,$t3,$t4,$t5);
 
-  $Data::Dumper::Varname='d';
-  my $patch_eval='$d='.Dumper($dom).";\n";
+  my $patch_eval='$d='.__d($dom).";\n";
 
-  $Data::Dumper::Varname='t';
-  $patch_eval .= '$t='.Dumper($dom).";\n";
+  $patch_eval .= '$t='.__d($dom).";\n";
 
   my $post_eval;
 
@@ -1788,6 +1818,98 @@ EX:
 
 ##############################################################################
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
+sub patternDom2Text($) {
+#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+  my @path=@{shift()};
+#{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
+
+=item I<patternDom2Text>(<pattern>)
+
+convert the pattern DOM (array of element used by search(), path()) to text scalar string.
+
+
+   <pattern>   is an array list of splited element of the pattern
+
+Return equivalent text
+
+EX:
+    patternDom2Text( ['?@'] );
+
+             Return '?@'
+
+    patternDom2Text( ['%', 'r'] );
+
+             Return '%r'
+
+    patternDom2Text( ['@',3,'%','r'] );
+
+             Return '@3%r'
+
+    patternDom2Text( ['@',2,'=','3'] );
+
+             Return '@2=3'
+
+=cut
+
+#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+
+  # patternDom2Text is a singlé join without key defined
+
+  (defined $CFG->{o_key}) or   return join('',@path);
+
+  (%{$CFG->{o_key}}) or join('',@path);
+
+
+  # matching Keys
+
+  my $sz_path = scalar(@path);
+
+  # debug "\n###".join('.',@{$path}).' '.join('|',keys %{$CFG->{o_key}});    <>;
+
+  my %keys=%{$CFG->{o_key}};
+
+# TODO : key priority sould be managed by a small getPrioritizedKey() function (warning)
+
+  my @sorted_keys = 
+#    sort {      ( $keys{$a}->{priority} > $keys{$b}->{priority} ) }
+    keys %keys;
+
+  my $k;
+
+  my $i = 0;
+  while ($i<scalar(@path)) {
+
+    foreach $k (@sorted_keys)
+      {
+	my $match = $keys{$k}{regexp};
+
+	#warn "\n=$k on ".join('',@path[0..$i]);
+
+	my $min_index = $matchPath->($match, @path[0..$i]);
+
+	if (defined $min_index) {
+	  # debug 
+	  #warn " -> key($k -> ".join(' ',@{$match}).")  = $min_index\n";
+
+	  # replace the (matched key expression) by ('/' , <key name>)
+
+	  splice @path, $min_index, scalar(@$match), '/',$k;
+
+	  $i = $i + 2 - scalar(@$match);
+
+	  #warn "-> path  -> ".join('.',@path)." \$i=$i\n";
+      }
+    }
+    $i++;
+  }
+  return join('',@path);
+
+};
+
+
+
+##############################################################################
+#{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
 sub domPatch2TEXT(@) {
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
@@ -1795,8 +1917,8 @@ sub domPatch2TEXT(@) {
 
 =item I<domPatch2TEXT>(<patch 1>, <patch 2> [,<patch N>])
 
-convert a list of patches formatted in perl dom (man perldsc)
-into a readable text format.
+convert a list of perl usable patches into a readable text format.
+Also convert to key patterns which are matching the regexp key definnition
 Mainly used to convert the compare result (format dom)
 
 ARGS:
@@ -1805,36 +1927,75 @@ ARGS:
 Return a list of patches in TEXT mode
 
 EX:
+
+
    domPatch2TEXT($patch1)
-   returns 'change(@0$%a,@0$%a)="toto"/=>"tata"'
+
+        returns 'change(@0$%magic_key,@0$%magic_key)="toto"/=>"tata"'
+
+
+   # one key defined
+   o_key({ key_1 => {regexp=>['%','magic_key'], eval=>'{magic_key}' }	} );
+
+   # same but with the related matched key in path
+
+   domPatch2TEXT($patch1)
+
+        returns 'change(@0$/key_1,@0$/key_1)="toto"/=>"tata"'
+
 
 =cut
 
   my @res;
-  foreach (@_) {
+  my $patch;
+  foreach $patch (@_) {
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
-    (ref($_) eq 'HASH') and do {
-      die 'domPatch2TEXT(): bad internal dom structure '.Dumper($_) unless(exists $_->{action});
-      push @res,
-	$patchText->($_->{action},
-		     $_->{path_orig},
-		     $_->{path_dest},
-		     $_->{val_orig},
-		     $_->{val_dest});
+    (ref($patch) eq 'HASH') and do {
+
+      (exists $patch->{action})
+	or die 'domPatch2TEXT(): bad internal dom structure '.__d($patch);
+
+
+      my $action = $patch->{action};
+      my $v1 = $patch->{val_orig};
+      my $v2 = $patch->{val_dest};
+
+      my $txt = $action
+	.'('
+	  .patternDom2Text($patch->{path_orig})
+	    .','
+	      .patternDom2Text($patch->{path_dest})
+		.')=';
+
+      if (($action eq 'remove') or ($action eq 'change')) {
+	$v1 = __d($v1);
+	$v1 =~ s|/=>|\/\\054\>|g;
+	$v1 =~ s/\s=>\s/=>/sg;
+	$txt .= $v1;
+      }
+
+      ($action eq 'change') and $txt .= '/=>';
+
+      if (($action eq 'add') or ($action eq 'change')) {
+	$v2 = __d($v2);
+	$v2 =~ s|/=>|\/\\054\>|g;
+	$v2 =~ s/\s=>\s/=>/sg;
+	$txt .= $v2;
+      }
+
+      push @res, $txt;
       next
     } or
     (ref($_) eq 'ARRAY') and do {
       push @res,join '', @{$_};
       next
-    } or
-      die 'unknown internal dom structure ';
+    };
   }
 
-  # we logically don't want the array size=1 but to have the only result
-  # from the only one arg given in input 
-  return shift(@res) if ($#_ ==0 and !wantarray);
-  return @res;
+  # 
+  (wantarray()) and return @res;
+  return join("\n",@res);
 }
 
 ##############################################################################
@@ -1893,6 +2054,111 @@ EX:
   return $msg;
 }
 
+
+##############################################################################
+#{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
+sub patternText2Dom($) {
+#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+
+  my $pathTxt = shift();
+
+  (ref($pathTxt)) and die 'patternText2Dom() : bad call with a reference instead of scalar containing pattern text ';
+
+=item I<patternText2Dom>(<text pattern>)
+
+convert pattern scalar string to the array of element to be used by search(), path()
+
+
+   <pattern>   is an array of type description to match
+   <max occ.>  optional argument to limit the number of results
+                  if undef all results are returned
+		  if 1 first one is returned
+
+Return an array  list of splited element of the <pattern> for usage
+
+EX:
+    patternText2Dom( '?@' );
+
+             Return ['?@']
+
+    patternText2Dom( '%r' );
+
+             Return ['%', 'r']
+
+    patternText2Dom( '@3%r' );
+
+             Return ['@',3,'%','r']
+
+    patternText2Dom( '@2=3' );
+
+             Return ['@',2,'=','3']
+
+=cut
+
+#}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+
+  my @path;
+
+  #debug "patternText2Dom($pathTxt)";;
+
+  my %keys=();
+
+   (ref($CFG->{o_key})) and %keys = %{$CFG->{o_key}};
+
+  my @pathTxt = split('',$pathTxt);
+
+  while (@pathTxt) {
+
+    $_ = shift @pathTxt;
+
+    if (defined($path[-1]) and $path[-1] =~ /^\?/ and m/^[\=\%\$\@\%\*]/) {
+      $path[-1].= $_;
+    }
+    elsif ($_ eq '$') {
+      push(@path,'$');
+    }
+    elsif ($_ eq '?') {
+      push(@path,'?');
+    }
+    elsif ($_ eq '&') {
+      push(@path,'&');
+    }
+    elsif (/([%\@\=\|\*\/])/) {
+      push(@path,$1,'');
+    }
+    else {
+      if ($path[-2] eq '/' and exists($keys{$path[-1]})) {
+           # cf test "Search Complex key 3..5"
+             push(@path,'');
+      }
+      $path[-1].= $_;
+    }
+  }
+
+  # post - convertion § array & key convertion
+
+  my $i;
+  for $i (0..$#path) {
+
+    if ($path[$i] eq '@') {
+      $path[$i+1] = int($path[$i+1]);
+    }
+    elsif ($path[$i] eq '/') {
+      my $keyname = $path[$i+1];
+      (exists($keys{$keyname})) or die 'patternText2Dom() ! no key '.$keyname;
+
+      splice @path, $i, 2, @{ $keys{$keyname}{regexp} };
+
+    }
+  }
+
+#warn "patternText2Dom(".join('',@pathTxt).')=> '.join(' ',@path)."  .";
+
+  #debug '=>'.join('.',@path);
+  return [@path];
+};
+
+
 ##############################################################################
 #{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
 sub textPatch2DOM(@) {
@@ -1932,6 +2198,8 @@ returns (
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
     my $patch=pop;
 
+    defined($patch) or next;
+
     debug "textPatch2DOM in ".$patch;
 
     my ($p1,$p2,$v1,$v2);
@@ -1940,10 +2208,10 @@ returns (
     my $action = $1; # or die 'action ???';
 
     ( $patch =~ s/^([^,]*?),//
-    ) and $p1 = $pathText2Dom->($1);
+    ) and $p1 = patternText2Dom($1);
 
     ( $patch =~ s/^([^\(]*?)\)=//
-    ) and $p2 = $pathText2Dom->($1);
+    ) and $p2 = patternText2Dom($1);
 
     if ($action ne 'move') {
       my $i = index($patch, '/=>');
@@ -1956,19 +2224,17 @@ returns (
       }
     }
     my $a = eval($v1);
-    die "textPatch2DOM() error in eval($v1) : ".$@ if ($@);
+    ($@) and die "textPatch2DOM() error in eval($v1) : ".$@;
 
     my $b = eval($v2);
-    die "textPatch2DOM() error in eval($v2) : ".$@ if ($@);
+    ($@) and die "textPatch2DOM() error in eval($v2) : ".$@;
 
-    #debug Dumper($patchDOM->($action, $p1, $p2, $a, $b));
     push @res,$patchDOM->($action, $p1, $p2, $a, $b);
   }
 
-  # we logically don't want the array size=1 but to have the only result
-  # from the only one arg given in input 
-  return shift(@res) if ($#_ ==0 and !wantarray);
-  return @res;
+  #
+  (wantarray()) and return @res;
+   return [@res];
 }
 
 

@@ -45,16 +45,14 @@ sub bug {
 
 ##############################################################################
 sub START_TEST_MODULE($) {
-  Data::Deep::o_debug()
-      and
+#  Data::Deep::o_debug()      and
 	print "\n".('#' x 80)
 	  ."\n              >>>>>>>>>>>>>>>  ".shift()." <<<<<<<<<<<<<<<<<<<<<<< \n"
 	    .('#' x 80)."\n";
 }
 
 sub END_TEST_MODULE($)   {
-  Data::Deep::o_debug()
-      and
+#  Data::Deep::o_debug()      and
 	print
 	  "\n              ~~~~~~~~~~~~~~~  ".shift()." Finished   ~~~~~~~~~~~~ \n";
 }
@@ -87,30 +85,36 @@ sub testRes($$) {
 #}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
   bug "\n_____________________________________________________________\n";
-  bug "Result = \n\t".join("\n\t", map({domPatch2TEXT $_} @result))."\n";
-  bug "Waited = \n\t".join("\n\t", map({ref($_) && domPatch2TEXT($_) || $_} @waited))."\n";
 
   my @err;
   my $res;
+  my $b;
+  my $t;
 
   foreach $res (@result) {
-    my $r = domPatch2TEXT($res);
+    if (ref($res)) {
+      $t = __d($res);
+      $res=$t;
+    }
 
     my $i=0;
     my $found=undef;
-    my $t;
 
-    foreach $t (@waited) {
-      ref($t) and $t = domPatch2TEXT($t);
+    foreach $b (@waited) {
+      if (ref($b)) {
+	$t = __d($b);
+	$b=$t;
+      }
+
       # comparer les deux chaines
-      if($t eq $r)
+      if($res eq $b)
        {
 	$found=$i;
-	#print "\nFOUND $found == $i: $r\nIN : $t.";
+	#print "\nFOUND $found == $i: $res\nIN : $b.";
 	last;
       }
       else {
-	#print "\nNOT FOUND : ".$r."\n      <!> : ".$t."\n";
+	#print "\nNOT FOUND : ".$res."\n      <!> : ".$b."\n";
       }
       $i++;
     }
@@ -125,10 +129,10 @@ sub testRes($$) {
   if (@err or @waited) {
     my $msg;
     @waited and
-      $msg = "\n  Waited result remain :\n\t".join("\n\t",map({(ref($_)?domPatch2TEXT($_):$_)} @waited));
+      $msg = "\n  Waited result remain :\n\t".join("\n\t",map({(ref($_)?__d($_):$_)} @waited));
 
     @err and
-      $msg .= "\n  Results remain :\n\t".join("\n\t",map({domPatch2TEXT $_} @err));
+      $msg .= "\n  Results remain :\n\t".join("\n\t",map({(ref($_)?__d($_):$_)} @err));
 
     return $msg
   }
@@ -150,24 +154,33 @@ sub testPathSearch($$$$;$) { # testing if search() return the right paths
 
   title $msg or return;
 
-  my $dom_before = Dumper($dom);
+  my $dom_before = __d($dom);
+
+  unless (ref($what)) {
+    # warn "Convertion of $what to Dom path";
+    $what = patternText2Dom($what);
+    # warn "   => ".patternDom2Text($what);
+  }
 
   #          search() TEST
   #########################################
   my @paths = search $dom, $what, $nb_occ;
 
+  my @paths_txt = map { patternDom2Text($_) } @paths;
+
   bug "\n - check bords effect. ";
-  if (Dumper($dom) ne $dom_before) {
-    bug "\nWaited    : ".$dom_before."\n";
-    bug "\nCorrupted : ".Dumper($dom)."\n";
+  if (__d($dom) ne $dom_before) {
+    warn $msg.' => testPathSearch() : dom modified :{'
+        ."\nWaited    : ".$dom_before."\n"
+	."\nCorrupted : ".__d($dom)."\n";
     return 0;
   }
 
   bug "\n - check search results. ";
 
-  my $res = testRes( \@paths, $waited );
+  my $res = testRes( \@paths_txt, $waited );
   if ($res) {
-    warn $msg.' => dom modified !'.$res."\n";
+    warn $msg.' => testPathSearch() :{'.$res."} !!!\n";
     return 0;
   }
   return 1;
@@ -185,25 +198,18 @@ sub testTravel { # testing if travel() goes into the right values
 
   title "travel through a node / $msg ()" or return;
 
-  my $visitor_test =  sub {
-    my $node = shift();
-    my $depth = shift;
-    my @cur_path = @_;
-
-    return $depth.' > '.join('',@cur_path).' : '.ref($node);
-  };
 
   #         travel() TEST
   #########################################
-  my $dom_before = Dumper($dom);
-  my @res = travel($dom, $visitor_test);
+  my $dom_before = __d($dom);
+  my @res = travel($dom);
 
   bug "\n - check bords effect.";
 
-  if ($dom_before ne Dumper($dom)) {
-    warn $msg.' => dom modified !'
+  if ($dom_before ne __d($dom)) {
+    warn $msg.' => travel() dom modified : {'
       ."\nWaited    : ".$dom_before."\n"
-	."\nCorrupted : ".Dumper($dom)."\n";
+	."\nCorrupted : ".__d($dom)."}\n";
     return 0;
   }
 
@@ -211,17 +217,15 @@ sub testTravel { # testing if travel() goes into the right values
 
   bug "\n - check search results. ";
   Data::Deep::debug(@res);
-  my $res= Dumper(\@res);
-  my $wait= Dumper($waited);
 
-  $res=~s/\n$//;
-  $wait=~s/\n$//;
-  if ($res ne $wait) {
-    warn $msg.' => dom modified !'
-      ."\nWaited    : ".$wait."\n"
-	."\nResult : ".$res."\n";
+  my $res = testRes(\@res,$waited);
+
+  if ($res) {
+    warn $msg.' => travel() check results : {'
+      .$res;
     return 0;
   }
+
   return 1;	
 }
 
@@ -238,34 +242,37 @@ sub testSearch { # testing if search() then path() return the right values
 
   title "search a node / $msg " or return;
 
-  my $dom_before = Dumper($dom);
+  my $dom_before = __d($dom);
 
   #          search() TEST
   #########################################
-  my @res = search($dom, $what, 999);
+  ref($what) or $what = patternText2Dom($what);
 
-  bug "\n - path results = ".Dumper(\@res);
+  my @paths = search($dom, $what, 999);
+
+
+  bug "\n - path results = ".__d(\@paths);
   #          path() TEST
   #########################################
 
   my @nodes= path($dom,
-		  [@res],
+		  [@paths],
 		  $depth);
 
   bug "\n - check bords effect. ";
-  if (Dumper($dom) ne $dom_before) {
-    warn $msg.' => dom modified !'
+  if (__d($dom) ne $dom_before) {
+    warn $msg.' => search() dom modified !'
       ."\nWaited    : ".$dom_before."\n"
-	."\nCorrupted : ".Dumper($dom)."\n";
+	."\nCorrupted : ".__d($dom)."\n";
     return 0;
   }
 
   bug "\n - check search results. ";
 
-  my @diff = compare(\@nodes,$waited);
+  my $res = testRes(\@nodes, $waited);
 
-  if (@diff) {
-    warn "$msg => waited : ".join("\n  - ",map {domPatch2TEXT $_} @diff)."\n";
+  if ($res) {
+    warn $msg." testSearch => ".$res."\n";
 
     return 0;
   }
@@ -287,7 +294,9 @@ sub testPath { # test for path()
 
   title $msg or return;
 
-  my $dom_before = Dumper($dom);
+  my $dom_before = __d($dom);
+
+  $what = [ map {patternText2Dom $_} @$what ];
 
   #          path() TEST
   #########################################
@@ -295,23 +304,20 @@ sub testPath { # test for path()
 		  $what,
 		  $depth);
 
-  my $dom_after = Dumper($dom);
+  my $dom_after = __d($dom);
+
   ok($dom_before, $dom_after);
 
-  #my $res = testRes( \@nodes, $waited );
-  #$res and ko($res) or ok($msg)
+#  my $nodes_txt = [map {print Dumper($_);patternDom2Text $_} @nodes];
 
-  my $d1= Dumper(\@nodes);
-  my $d2= Dumper($waited);
+  my $res = testRes( \@nodes, $waited );
 
-  $d1=~s/\n$//;
-  $d2=~s/\n$//;
-  if ($d1 eq $d2) {
-    return 1;
+  if ($res) {
+    warn $msg.' => different path '.$res;
+    return 0;
   }
 
-  warn $msg.' => different path '.$d1."\nVs\n".$d2;
-  return 0;
+  return 1;
 }
 
 
@@ -329,32 +335,33 @@ sub testCompare {
   title $msg or return;
 
 
-  my $d1 = Dumper($a1);
-  my $d2 = Dumper($a2);
+  my $d1 = __d($a1);
+  my $d2 = __d($a2);
 
   #          compare() TEST
   ############################################
   my @pth_1_2 = compare($a1,$a2);
+  my @pth_1_2_txt = map {domPatch2TEXT $_} @pth_1_2;
 
   bug "\n - check compare results : ";
-  my $res = testRes( \@pth_1_2, $waited_patch );
+
+  my $res = testRes( \@pth_1_2_txt, $waited_patch );
   if ($res) {
     warn $msg.' => '.$res;
     return 0;
   }
-  return 1;
 
-  if (Dumper($a1) ne $d1) {
+  if (__d($a1) ne $d1) {
     warn $msg.' => dom modified !';
-    warn  "\nWaited    : ".$d1."\n";
-    warn "\nCorrupted : ".Dumper($a1)."\n";
+    warn  "\nWaited   : ".$d1."\n";
+    warn "\nCorrupted : ".__d($a1)."\n";
     return 0;
   }
 
-  if (Dumper($a2) ne $d2) {
+  if (__d($a2) ne $d2) {
     warn $msg.' => dom modified !';
-    warn  "\nWaited    : ".$d1."\n";
-    warn "\nCorrupted : ".Dumper($a1)."\n";
+    warn  "\nWaited   : ".$d1."\n";
+    warn "\nCorrupted : ".__d($a1)."\n";
     return 0;
   }
 
@@ -368,10 +375,10 @@ sub testCompare {
 
     if (@res) {
       warn "$msg => differences after applying patch {\n  - "
-	.join("\n  - ",map {domPatch2TEXT $_} @pth_1_2)
+	.join("\n  - ",@pth_1_2_txt)
 	  ."\n}\nStill found remaining differences {\n  - "
 	.join("\n  - ",map {domPatch2TEXT $_} @res)
-	  ."\n}\nDom dump after patch is ".Dumper($a1_patched);
+	  ."\n}\nDom dump after patch is ".__d($a1_patched);
 
       return 0;
     }
@@ -390,7 +397,7 @@ sub testCompare {
       if (@res) {
 	warn "$msg => differences after after applying reverse patcher :\n"
 	  .join("\n",map {domPatch2TEXT $_} @res)
-	    ."\nResult after patch is ".Dumper($a2_patched);
+	    ."\nResult after patch is ".__d($a2_patched);
 
 	return 0;
       }
@@ -400,12 +407,237 @@ sub testCompare {
 }
 
 ##############################################################################
+##############################################################################
+##############################################################################
+##############################################################################
 use strict;
 use Test;
-BEGIN { plan tests =>270};
+BEGIN { plan tests =>289};
+##############################################################################
+##############################################################################
+##############################################################################
+##############################################################################
 ##############################################################################
 
+package PKG_TEST;our $VAR_GLOB=87;sub new { return bless {a=>[32]};};1;
 
+package main;
+# warn Dumper(new PKG_TEST());
+
+
+#############################################################################
+
+START_TEST_MODULE('internal');
+
+my $a=3;
+my $b="hkj";
+
+my $d1 = 
+  [
+   10,
+   "a",
+   [6,5,{'r2'=>'r1'}, 3, undef, new PKG_TEST()],
+   \ {
+#      a => bless(\$a,'PKG_TEST'),
+#UNSUPPORTED  => 0x201... type ~ bless(do{my $a=5;},'PKG_TEST') ???
+#    Dumper() => bless(do{\(my $a=5;)},'PKG_TEST')
+
+#      d => bless(\$b,'PKG_TEST'),
+#UNSUPPORTED  => undef... idem type
+      b=>\5,
+      c=>{}
+     }
+  ];
+
+my $d2 = eval __d($d1);
+
+$@ and ok(0);
+$@ and die $@;
+
+unless (ok(__d($d1) eq __d($d2))) {
+  warn "\nDifferences : \n".join("\n",map {domPatch2TEXT $_} compare($d1,$d2))."\n";
+}
+
+unless (ok(Dumper($d1) eq Dumper($d2))) {
+  warn "\nDifferences with Data::Dumper : \n".join("\n",map {domPatch2TEXT $_} compare($d1,$d2))."\n";
+  # __d() pbm ????
+
+}
+
+
+START_TEST_MODULE('patternText2Dom');
+
+
+
+ok (Data::Deep::__d(Data::Deep::patternText2Dom( '?@')),
+    q#['?@']#
+   );
+
+ok (Data::Deep::__d(Data::Deep::patternText2Dom( '%r')),
+    q#['%','r']#
+   );
+ok (Data::Deep::__d(Data::Deep::patternText2Dom( '@3%r')),
+    q#['@',3,'%','r']#
+   );
+ok (Data::Deep::__d(Data::Deep::patternText2Dom( '@2=3')),
+    q#['@',2,'=',3]#
+   );
+
+o_key({
+       key_r => {regexp=>['%','r'],
+		 eval=>'{r}'
+		},
+       first  => {regexp=>['@',0],
+		  eval=>'[0]',
+		 }
+      });
+
+
+ok (Data::Deep::__d(Data::Deep::patternText2Dom( '/key_r/first')),
+    q#['%','r','@',0]#
+   );
+
+ok (Data::Deep::__d(Data::Deep::patternText2Dom( '/key_r/first')),
+    q#['%','r','@',0]#
+   );
+
+
+START_TEST_MODULE('domPatch2TEXT');
+
+
+my $patch1
+  = {
+     'action' => 'change',
+     'path_orig' => [
+		     '@', 0, '$','%','r'
+		    ],
+     'val_orig' => 'toto',
+
+     'path_dest' => [
+		     '@', 0, '$','%','r'
+		    ],
+     'val_dest' => 'tata',
+    };
+
+
+ok(domPatch2TEXT($patch1), 'change(/first$/key_r,/first$/key_r)=\'toto\'/=>\'tata\'');
+
+
+
+START_TEST_MODULE('textPatch2DOM');
+
+ok( 
+   __d(textPatch2DOM('change(/first$/key_r,/first$/key_r)=\'toto\'/=>\'tata\'')),
+   __d($patch1)
+  );
+
+o_key(undef);
+
+
+
+ok(domPatch2TEXT($patch1), 'change(@0$%r,@0$%r)=\'toto\'/=>\'tata\'');
+
+ok(__d(textPatch2DOM('change(@0$%r,@0$%r)="toto"/=>"tata"')),
+   __d($patch1)
+  );
+
+
+
+  ##############################################################################
+ # Tests related to the travel function of Data::Deep
+ ###############################################################################
+START_TEST_MODULE('Travel');
+ ###
+###
+##
+#
+
+o_complex(0);
+
+
+my @patch = travel($d1);
+
+$d2 = applyPatch(undef, @patch);
+
+# cannot patch the Package
+# commenting this line gives : change(@2@5,@2@5)=bless( {"a"=>[32]}, 'PKG_TEST')/=>{"a"=>[32]}
+$d2->[2][5] = new PKG_TEST();
+
+unless (ok(__d($d1) eq __d($d2))) {
+  warn "Patch : \n\t-".join("\n\t-",map {domPatch2TEXT $_} @patch).
+    "\nDifferences : \n".join("\n",map {domPatch2TEXT $_} compare($d1,$d2))."\n";
+}
+
+my @res = travel($d1,\&visitor_dump);
+
+
+ok( join("\n",@res),
+'0 >  : ARRAY
+0   @0 : ARRAY
+1   @0=10 : 
+0   @1 : ARRAY
+1   @1=a : 
+0   @2 : ARRAY
+1 > @2 : ARRAY
+1   @2@0 : ARRAY
+2   @2@0=6 : 
+1   @2@1 : ARRAY
+2   @2@1=5 : 
+1   @2@2 : ARRAY
+2 > @2@2 : HASH
+2   @2@2%r2 : HASH
+3   @2@2%r2=r1 : 
+2 < @2@2 : HASH
+1   @2@3 : ARRAY
+2   @2@3=3 : 
+1   @2@4 : ARRAY
+2   @2@4= : 
+1   @2@5 : ARRAY
+2 > @2@5|PKG_TEST : PKG_TEST
+2   @2@5|PKG_TEST%a : PKG_TEST
+3 > @2@5|PKG_TEST%a : ARRAY
+3   @2@5|PKG_TEST%a@0 : ARRAY
+4   @2@5|PKG_TEST%a@0=32 : 
+3 < @2@5|PKG_TEST%a : ARRAY
+2 < @2@5|PKG_TEST : PKG_TEST
+1 < @2 : ARRAY
+0   @3 : ARRAY
+1   @3$ : REF
+2 > @3$ : HASH
+2   @3$%b : HASH
+3   @3$%b$ : SCALAR
+4   @3$%b$=5 : 
+2   @3$%c : HASH
+3 > @3$%c : HASH
+3 < @3$%c : HASH
+2 < @3$ : HASH
+0 <  : ARRAY'
+);
+
+
+ok(testTravel("1 travelling through ",
+	      [\{a=>3,b=>sub{return 'test'}}],
+   [
+    'add(,)=[]',
+    'add(@0$,@0$)={}',
+    'add(@0$,@0$%a)=\'3\'',
+    'add(@0$%b&,@0$%b&)=sub{}'
+   ]));
+
+
+ok(testTravel("2 travelling through ",
+	      [\{a=>3,b=>sub{return 'test'}}],
+   [
+    'add(,)=[]',
+    'add(@0$,@0$)={}',
+    'add(@0$,@0$%a)=\'3\'',
+    'add(@0$%b&,@0$%b&)=sub{}'
+   ]));
+
+
+
+
+END_TEST_MODULE('Travel');
 
 
   ##############################################################################
@@ -420,10 +652,10 @@ START_TEST_MODULE('Search');
 o_complex(0);
 
 #############################################################################
-
+my $fx1 = sub{return 'test'};
 
 ok(testPath(" 0 depth",
-	    [\{a=>3,b=>sub{return 'test'}}],
+	    [\{a=>3,b=>$fx1}],
    ['@0$%a=3',
     '@0$%a=4',
     '@0$%a',
@@ -431,7 +663,7 @@ ok(testPath(" 0 depth",
     '@0$%b'
    ],
    0,
-   [1,0,3,'test',sub{}]
+   [1,0,3,'test',$fx1]
   ));
 
 my $dom;
@@ -454,11 +686,10 @@ ok(testPath(" -1 depth",
 
 ok(testPath(" 0 depth",
 	    [\{a=>3}],
-   [['@',0,'$','%','a','=',4]],
+   ['@0$%a=4'],
    0,
    [0]
   ));
-
 
 ok(testSearch("node root",
 	      [\{a=>3}],
@@ -467,7 +698,8 @@ ok(testSearch("node root",
 
 ok(testSearch("node root 2",
 	      [\{a=>3}],
-   ['%','a','=',4], 0, []
+   '%a=4', # testSearch manage the patternText2dom() convertion
+   0, []
   ));
 
 ok(testSearch("node root 2",
@@ -540,7 +772,6 @@ my $sd1=
 
 # test the path checks in all ways
 
-
 #testPathSearch('path 1', $dom, what, [<waited>],  3)
 
 
@@ -548,25 +779,42 @@ ok(testPathSearch( 'not found 1',$sd1, ['%','unknown'], [] ));
 ok(testPathSearch( 'not found 2',$sd1, ['@',3], [] ));
 ok(testPathSearch( 'not found 3',$sd1, ['=','unknown'], [] ));
 
-ok(testPathSearch( 'scalar 1',$sd1, ['=','a'], [['@',0,'=','a']] ));
-ok(testPathSearch( 'scalar 2',$sd1, ['=',12] , [['@',1,'%','o','%','d','=',12]] ));
+ok(testPathSearch( 'scalar 1',$sd1, ['=','a'], ['@0=a'] ));
+ok(testPathSearch( 'scalar 2',$sd1, ['=',12] , ['@1%o%d=12'] ));
+ok(testPathSearch( 'scalar 3',$sd1, '?=' ,
+		   [
+		    '@0=a',
+		    '@1%a1@0=1',
+		    '@1%a1@1=2',
+		    '@1%a1@2=3',
+		    '@1%a1bis=toto',
+		    '@1%d2%u=',
+		    '@1%g@0=r',
+		    '@1%g@1=3',
+		    '@1%g@2=432zlurg432a1',
+		    '@1%o%a1@0=8',
+		    '@1%o%po$@0=3',
+		    '@1%o%d=12',
+		    '@1%o%zluRG__=__found'
+		   ]
+		 ));
 
-ok(testPathSearch( 'hash 1',$sd1, ['%','po'], [['@',1, '%', 'o', '%', 'po']] ));
-ok(testPathSearch( 'hash 2',$sd1, ['%','d'] , [['@',1, '%', 'o', '%', 'd']]  ));
-ok(testPathSearch( 'hash 3',$sd1, ['%','d2'], [['@',1, '%', 'd2']] ));
+ok(testPathSearch( 'hash 1',$sd1, ['%','po'], ['@1%o%po'] ));
+ok(testPathSearch( 'hash 2',$sd1, ['%','d'] , ['@1%o%d']  ));
+ok(testPathSearch( 'hash 3',$sd1, ['%','d2'], ['@1%d2'] ));
 ok(testPathSearch(
 		  'hash 4',
 		  $sd1,
 		  ['%','a1'], 
-		  [['@',1,'%','o','%','a1'],
-		   ['@',1, '%', 'a1']
+		  ['@1%o%a1',
+		   '@1%a1'
 		  ] ));
 
 ok(testPathSearch(
 		  'hash 5',
 		  [{"a"=>[1],'b'=>{r=>'io'},'c'=>3},2],
 		  ['%','b','%','r'],
-		  [['@',0,'%','b','%','r']]
+		  ['@0%b%r']
 		 ));
 
 ok(testPathSearch(
@@ -579,39 +827,39 @@ ok(testPathSearch(
 		      }
 		  },
 		  ['?%','?%','=',45],
-		  [['%','e','%','r','%','kl','%','toto','=',45]]
+		  ['%e%r%kl%toto=45']
 		 ));
 
 
 ok(testPathSearch("hash key 1",$sd1,
 		  ['?%','=','12'],
-		  [['@',1,'%','o','%','d','=',12]],
+		  ['@1%o%d=12'],
 		  2
 		 ));
 
 ok(testPathSearch("hash key 2",$sd1,
 		  ['?%','%','u'],
-		  [['@',1,'%','d2','%','u']],
+		  ['@1%d2%u'],
 		  2
 		 ));
 
 ok(testPathSearch('regexp',$sd1,
 		  ['%',sub{/a1/}],
 		  [
-		   ['@',1,'%','a1bis'],
-		   ['@',1,'%','o','%','a1'],
-		   ['@',1, '%', 'a1']
+		   '@1%a1bis',
+		   '@1%o%a1',
+		   '@1%a1'
 		  ]
 		 ));
 
 ok(testPathSearch('array 1',$sd1,
 		  ['@',0],
 		  [
-		   ['@',0],
-		   ['@',1,'%','o','%','po','$','@',0],
-		   ['@',1, '%', 'g','@',0],
-		   ['@',1,'%','o','%','a1','@',0],
-		   ['@',1, '%', 'a1','@',0]
+		   '@0',
+		   '@1%o%po$@0',
+		   '@1%g@0',
+		   '@1%o%a1@0',
+		   '@1%a1@0'
 		  ]
 		 ));
 
@@ -619,15 +867,15 @@ ok(testPathSearch('array 1',$sd1,
 ok(testPathSearch('array 2',$sd1,
 		  ['@',1,'%','a1'],
 		  [
-		   ['@',1,'%','a1']
+		   '@1%a1'
 		  ]
 		 ));
 
 ok(testPathSearch('array 3',$sd1,
 		  ['@',2],
 		  [
-		   ['@',1,'%','g','@',2],
-		   ['@',1,'%','a1','@',2]
+		   '@1%g@2',
+		   '@1%a1@2'
 		  ]
 		 ));
 
@@ -640,7 +888,7 @@ ok(testPathSearch('array 4',
 		   ]
 		  ],
 		  ['?@','?@','=',4],
-		  [[ '@',3,'@',3,'@',3,'@',4,'=',4]] # give the two path  
+		  ['@3@3@3@4=4'] # give the two path  
 		 ));
 
 
@@ -648,10 +896,10 @@ ok(testPathSearch('mix 3',
 		  $sd1,
 		  ['=%',sub {m/a1/}],
 		  [
-		   ['@',1,'%','a1bis'],
-		   ['@',1,'%','o','%','a1'],
-		   ['@',1,'%','g','@',2,'=','432zlurg432a1'],
-		   ['@',1,'%','a1']
+		   '@1%a1bis',
+		   '@1%o%a1',
+		   '@1%g@2=432zlurg432a1',
+		   '@1%a1'
 		  ]
 		 ));
 
@@ -763,8 +1011,8 @@ ok(testPathSearch( "array index 1",
 		   $ex,
 		   ['?@','%','b'],
 		   [
-		    ['@',0,'%','b'],
-		    ['@',1,'%','b']
+		    '@0%b',
+		    '@1%b'
 		   ]
 		 ));
 
@@ -772,14 +1020,14 @@ ok(testPathSearch( "array index 2",
 		   $ex,
 		   ['?%','?@'],
 		   [
-		    ['@',0,'%','c','@',0],
-		    ['@',0,'%','c','@',1],
-		    ['@',0,'%','c','@',2],
-		    ['@',1,'%','c','@',0],
-		    ['@',1,'%','c','@',1],
-		    ['@',1,'%','c','@',2],
-		    ['@',1,'%','c','@',3],
-		    ['@',1,'%','c','@',4]
+		    '@0%c@0',
+		    '@0%c@1',
+		    '@0%c@2',
+		    '@1%c@0',
+		    '@1%c@1',
+		    '@1%c@2',
+		    '@1%c@3',
+		    '@1%c@4'
 		   ],
 		   5
 		 ));
@@ -787,10 +1035,10 @@ ok(testPathSearch( "array index 2",
 ok(testPathSearch( "key 1",$ex,
 		   ['?@%','=', 3],
 		   [
-		    ['@',0,'%','b','=',3],
-		    ['@',0,'%','c','@',0,'=',3],
-		    ['@',1,'%','c','@',3,'%','g','=',3],
-		    ['@',1,'%','c','@',4,'=',3]
+		    '@0%b=3',
+		    '@0%c@0=3',
+		    '@1%c@3%g=3',
+		    '@1%c@4=3'
 		   ]
 		 ));
 
@@ -798,9 +1046,9 @@ ok(testPathSearch( "key 2",
 		   [5,2,3,{r=>3},4,\3],
 		   ['?$@%','=',3],
 		   [
-		    ['@',2,'=',3],
-		    ['@',3,'%','r','=',3],
-		    ['@',5,'$','=',3]
+		    '@2=3',
+		    '@3%r=3',
+		    '@5$=3'
 		   ]
 		 ));
 
@@ -808,45 +1056,41 @@ ok(testPathSearch( "key 3",
 		   [5,2,3,{r=>\3},4,\3],
 		   ['?$','=',3],
 		   [
-		    ['@',3,'%','r','$','=',3],
-		    ['@',5,'$','=',3]
+		    '@3%r$=3',
+		    '@5$=3'
 		   ]
 		 ));
 
-# TODO : Seg Fault
-if (0) {
-  ok(testSearch( "path number",
-		 $ex,
-		 ['=',sub{$_>10}],
-		 -1,
-		 [50,38,432,50,543]
-	       )
-    );
+ok(testSearch( "path number",
+	       $ex,
+	       ['=',sub{$_>10}],
+	       -1,
+	       [50,38,432,50,543]
+	     )
+  );
 
-  ok(testSearch( "path 3",
-		 $ex,
-		 ['%',sub{1},'=',sub{$_<10}],
-		 -1,
-		 [2,3,6,7,3]
-	       )
-    );
-  # = ['?%',...
+ok(testSearch( "path 3",
+	       $ex,
+	       ['%',sub{1},'=',sub{$_<10}],
+	       -1,
+	       [2,3,6,7,3]
+	     )
+  );
+# = ['?%',...
 
-  my $nbocc = search($ex,['?@%','=', 3],999);
-  ($nbocc != 4) and ko('bad number of occurences found '.$nbocc.' instead of 4.');
-}
+my $nbocc = search($ex,['?@%','=', 3],999);
+
+($nbocc != 4) and ko('bad number of occurences found '.$nbocc.' instead of 4.');
 
 sub fx__ {return "toto"};
 
-
-my $pth_code=['%','b','&'];
 
 $ex={a=>3,b=>\&fx__};
 
 ok(testPathSearch('type code',
 		  $ex,
 		  ['&'],
-		  [$pth_code]
+		  ['%b&']
 		 ));
 
 ok(testSearch('type code 2',
@@ -856,9 +1100,12 @@ ok(testSearch('type code 2',
 	      [  { 'a' => 3, 'b' => sub{ } }  ]
 	     ));
 
-my @nodes = path($ex,[$pth_code],1); # deep
+# TIPS : real sample for path()
 
-my $nbocc = scalar(@nodes);
+my @nodes = path($ex,[patternText2Dom('%b&')],1); # deep
+
+$nbocc = scalar(@nodes);
+
 ($nbocc != 1) and ko('bad number of occurences found '.$nbocc.' instead of 1.');
 (eval '&{shift(@nodes)}()' ne 'toto') and ko('path : code 2 test : bad function call.');
 
@@ -866,7 +1113,7 @@ my $nbocc = scalar(@nodes);
 ok(testPathSearch( 'type glob',
 		   {'a'=>3,'b'=>\*STDIN},
 		   ['?*'],
-		   [['%','b','*','main::STDIN']]
+		   ['%b*main::STDIN']
 		 ));
 
 ok(testSearch( 'type glob',
@@ -884,9 +1131,9 @@ ok(testPathSearch( 'type glob 2',
 		   [\*main::a,\*main::h,\*main::s],
 		   ['=',3],
 		   [
-		    ['@',0,'*','main::a','@',1,'=',3],
-		    ['@',1,'*','main::h','%','a','=',3],
-		    ['@',2,'*','main::s','$','=',3]
+		    '@0*main::a@1=3',
+		    '@1*main::h%a=3',
+		    '@2*main::s$=3'
 		   ]
 		 ));
 
@@ -914,13 +1161,13 @@ ok(testSearch( 'type glob 2"\'',
 ok(testPathSearch( 'mix 1',
 		   {"a"=>[1],'b'=>\{r=>'io'},'c'=>3},
    ['=','io'],
-   [['%','b','$','%','r','=','io']]
+   ['%b$%r=io']
   ));
 
 ok(testPathSearch( 'mix 2',
 		   {"a"=>[1],'b'=>\['a','b','c'],'c'=>3},
    ['$','?@','=','b'],
-   [['%','b','$','@',1,'=','b']]
+   ['%b$@1=b']
   ));
 
 ok(testSearch( "hash bug",
@@ -975,9 +1222,9 @@ ok(testPathSearch( "ref 4",
 		   [2,\ [3,3,3],{a=>\ 123},\ {}],
 		   ['$','?@'],
 		   [
-		    ['@',1,'$','@',0],
-		    ['@',1,'$','@',1],
-		    ['@',1,'$','@',2]
+		    '@1$@0',
+		    '@1$@1',
+		    '@1$@2'
 		   ]
 		 ));
 
@@ -1000,11 +1247,9 @@ ok(testPathSearch( "Module Data::Dumper 0",
 				    [\ 2,\ [3],{a=>\ 123},\ {},{nb=>\ undef}]
 				   ),
 		   ['?|','?%'],
-		   [['|','Data::Dumper','%','apad']],
+		   ['|Data::Dumper%apad'],
 		   1
 		 ));
-
-
 local($_);
 ok(testSearch( "Module ref Data::Dumper 1",
 	       (new Data::Dumper(
@@ -1014,6 +1259,7 @@ ok(testSearch( "Module ref Data::Dumper 1",
   -1,
   [123]
 ));
+
 
 my $dd=[\ 2,\ [3], new Data::Dumper([{a=>\ 123}]), \ {},{nb=>\ undef}];
 
@@ -1060,19 +1306,14 @@ ok(testSearch( "Module ref 6",
 
 
 ########### PBM pas moyen de match quoiquecesoitdedans
-package PKG_TEST;our $VAR_GLOB=87;sub new { return bless {a=>[32]};};1;
-
-package main;
-# warn Dumper(new PKG_TEST());
 
 my $mod = new PKG_TEST();
 
 ok(testTravel(" package  ",
 	      $mod,
 	      [
-	       '0 > |PKG_TEST%a : PKG_TEST',
-	       '1 > |PKG_TEST%a@0 : ARRAY',
-	       '2 > |PKG_TEST%a@0=32 : '
+	       'add(|PKG_TEST%a,|PKG_TEST%a)=[]',
+	       'add(|PKG_TEST%a,|PKG_TEST%a@0)=\'32\''
 	      ]
 	      ));
 
@@ -1143,18 +1384,18 @@ ok(testCompare( "undef compare 2", 1 , undef, ['change(,)=1/=>undef'],1));
 #############################################################################
 ok(testCompare( "Equality", 'toto\'23_=\n=$jkl' , 'toto\'23_=\n=$jkl', [] ));
 #############################################################################
-ok(testCompare( "scalar" , "abc123\'=\n,\$\"{}[]()" , "tit\'i",
-		[ 'change(,)="abc123\'=\n,\$\"{}[]()"/=>"tit\'i"'
+ok(testCompare( "scalar" , "abc123\'=()\n,\$\"{}[]()" , "tit\'i",
+		[ 'change(,)=\'abc123\\\'=()\12,$"{}[]()\'/=>\'tit\\\'i\''
 		] ));
 
 ok(testCompare( "Scalar 1", [123], "jklj",
-		[ 'change(,)=[123]/=>"jklj"'] ));
+		[ 'change(,)=[123]/=>\'jklj\''] ));
 
 ok(testCompare( "Scalar 2", 1, [5],
 		[ 'change(,)=1/=>[5]' ] ));
 
 ok(testCompare( "Scalar 3", \ { a=>2 }, \ [5],
-		[ 'change($,$)={"a"=>2}/=>[5]' ], 1 ));
+		[ 'change($,$)={\'a\'=>2}/=>[5]' ], 1 ));
 
 #############################################################################
 my $a1= [1,2,3,'x'];
@@ -1163,13 +1404,13 @@ my $a2= [1,2];
 ok(testCompare( "Array", $a1,$a2,
 		[
 		 'remove(@2,)=3',
-		 'remove(@3,)="x"'
+		 'remove(@3,)=\'x\''
 		]
 	      ));
 
 #############################################################################
 ok(testCompare( "Array 2", $a2,$a1,
-		[ 'add(,@3)="x"',
+		[ 'add(,@3)=\'x\'',
 		  'add(,@2)=3'
 		]
 	      ));
@@ -1180,16 +1421,16 @@ $a2= ["c","a","d","b"];
 
 
 ok(testCompare( "Array 3", $a1,$a2,
-		['add(,@3)="b"',
-		 'change(@0,@0)="a"/=>"c"',
-		 'change(@1,@1)="b"/=>"a"',
-		 'change(@2,@2)="c"/=>"d"',
+		['add(,@3)=\'b\'',
+		 'change(@0,@0)=\'a\'/=>\'c\'',
+		 'change(@1,@1)=\'b\'/=>\'a\'',
+		 'change(@2,@2)=\'c\'/=>\'d\'',
 		]));
 
 o_complex(1);
 
 ok(testCompare( "Array 3'", $a1,$a2,
-		   [ 'add(,@2)="d"',
+		   [ 'add(,@2)=\'d\'',
 		     'move(@0,@1)=',
 		     'move(@1,@3)=',
 		     'move(@2,@0)=',
@@ -1202,10 +1443,10 @@ o_complex(0);
   #############################################################################
 
 ok(testCompare( "Array 4", $a2,$a1,
-		[ 'change(@0,@0)="c"/=>"a"',
-		  'change(@1,@1)="a"/=>"b"',
-		  'change(@2,@2)="d"/=>"c"',
-		  'remove(@3,)="b"'
+		[ 'change(@0,@0)=\'c\'/=>\'a\'',
+		  'change(@1,@1)=\'a\'/=>\'b\'',
+		  'change(@2,@2)=\'d\'/=>\'c\'',
+		  'remove(@3,)=\'b\''
 		],
 		1
 	      ));
@@ -1307,10 +1548,10 @@ o_complex(0);
 
 ok(testCompare( "Ref module 1",
 		[[3],sub{},    sub{}, *STDIN,(new Data::Dumper(['l']))],
-		[[3],sub{'io'},'klm', 432   ,(new Data::Dumper([123]))],
-		['change(@2,@2)=sub { "DUMMY" }/=>"klm"',
-		 'change(@3,@3)=*::STDIN/=>432',
-		 'change(@4|Data::Dumper%todump@0,@4|Data::Dumper%todump@0)="l"/=>123'
+		[[3],sub{return 'io'},'klm', 432   ,(new Data::Dumper([123]))],
+		['change(@2,@2)=sub { "DUMMY" }/=>\'klm\'',
+		 'change(@3,@3)=\'*main::STDIN\'/=>432',
+		 'change(@4|Data::Dumper%todump@0,@4|Data::Dumper%todump@0)=\'l\'/=>123'
 		]
 	      ));
 
@@ -1388,8 +1629,8 @@ ok(testCompare( "Glob 1",
 		  [2,\*a,\*h,\*s],
 		  [
 		   'change(@0,@0)=1/=>2',
-		   'change(@1*main::h,@1*main::a)={"a"=>3,"b"=>4}/=>[2,3,4]',
-		   'change(@2*main::s,@2*main::h)=\3/=>{"a"=>3,"b"=>4}',
+		   'change(@1*main::h,@1*main::a)={\'a\'=>3,\'b\'=>4}/=>[2,3,4]',
+		   'change(@2*main::s,@2*main::h)=\3/=>{\'a\'=>3,\'b\'=>4}',
 		   'change(@3*main::a,@3*main::s)=[2,3,4]/=>\3'
 		  ]
 		));
@@ -1438,7 +1679,7 @@ ok(testCompare(	"Equality",
 my @patch_1_2 =
   (
    'change(%o%d3,%o%d3)=[]/=>10',
-   'change(%o%d2,%o%d2)={"u"=>undef}/=>3',
+   'change(%o%d2,%o%d2)={\'u\'=>undef}/=>3',
    'remove(%o%po,%o)=3',
    'add(%a1,%a1@3)=[]',
    'change(%o%d,%o%d)=12/=>1'
@@ -1454,10 +1695,7 @@ ok(testCompare( 	"Differences",
 #############################################################################
 my $deep1_patched = applyPatch($deep1, @patch_1_2);
 
-ok(testCompare( 	"Equality after patch",
-			$deep1_patched, $deep2,
-			[ ]
-	      ));
+ok(__d($deep1_patched) eq __d($deep2));
 
 ok(testCompare( 	"Differences bis ",
 			$deep1,
@@ -1465,7 +1703,6 @@ ok(testCompare( 	"Differences bis ",
 			\@patch_1_2,
 			1
 	      ));
-
 
 ok(testCompare( 	"Differences bis twice (previous bord effect) ",
 			$deep1,
@@ -1480,7 +1717,7 @@ my @patch_2_1_ =
    'remove(%a1@3,%a1)=[]',
    'change(%o%d,%o%d)=1/=>12',
    'change(%o%d3,%o%d3)=10/=>[]',
-   'change(%o%d2,%o%d2)=3/=>{"u"=>undef}',
+   'change(%o%d2,%o%d2)=3/=>{\'u\'=>undef}',
    'add(%o,%o%po)=3',
   );
 
@@ -1522,10 +1759,10 @@ my $b3 = {test=> [
 
 ok(testCompare( "Differences 3", $a3, $b3,
 		[
-		 'change(%test@0$%a,%test@0$%a)="toto"/=>"titi"',
+		 'change(%test@0$%a,%test@0$%a)=\'toto\'/=>\'titi\'',
 		 'add(%test@0$,%test@0$%b)=3',
-		 'change(%test@1,%test@1)=\3321/=>{"d"=>12,"o"=>5}',
-		 'change(%test@2,%test@2)={"d"=>12,"o"=>5}/=>543',
+		 'change(%test@1,%test@1)=\3321/=>{\'d\'=>12,\'o\'=>5}',
+		 'change(%test@2,%test@2)={\'d\'=>12,\'o\'=>5}/=>543',
 		 'change(%test@3,%test@3)=55/=>\3321'
 		],
 		1
@@ -1535,7 +1772,7 @@ ok(testCompare( "Differences 3", $a3, $b3,
 o_complex(1);
 ok(testCompare( "Differences 3", $a3, $b3,
 		[
-		 'change(%test@0$%a,%test@0$%a)="toto"/=>"titi"',
+		 'change(%test@0$%a,%test@0$%a)=\'toto\'/=>\'titi\'',
 		 'add(%test@0$,%test@0$%b)=3',
 		 'move(%test@1,%test@3)=',
 		 'move(%test@2,%test@1)=',
@@ -1571,9 +1808,9 @@ o_complex(0);
 ok(testCompare( "Differences 4", $a4, $b4,
 		[
 		 'add(@0$,@0$%E)=3',
-		 'change(@1,@1)=33/=>{"d"=>12,"o"=>5}',
-		 'change(@2,@2)={"d"=>12,"o"=>5}/=>"titi"',
-		 'remove(@3,)="titi"'
+		 'change(@1,@1)=33/=>{\'d\'=>12,\'o\'=>5}',
+		 'change(@2,@2)={\'d\'=>12,\'o\'=>5}/=>\'titi\'',
+		 'remove(@3,)=\'titi\''
 		],
 		1
 	      ));
@@ -1607,7 +1844,7 @@ ok(testCompare( "post patch move 2",
 ok(testCompare( "post patch move 3", # reg
 		[2],
 		{b=>2},
-		[ 'change(,)=[2]/=>{"b"=>2}' ],1
+		[ 'change(,)=[2]/=>{\'b\'=>2}' ],1
 	      ));
 
 ok(testCompare( "post patch move 4", # limit
@@ -1615,7 +1852,7 @@ ok(testCompare( "post patch move 4", # limit
 		[{b=>2},1,{e=>2}],
 		[ 'move(@0%a,@0%b)=',
 		  'remove(@0%e,@0)=2',
-		  'add(,@2)={"e"=>2}'
+		  'add(,@2)={\'e\'=>2}'
 		],1
 	      ));
 o_complex(0);
@@ -1635,43 +1872,6 @@ ok(testCompare( "post patch move 5",
 END_TEST_MODULE('Compare');
 
 
-  ##############################################################################
- # Tests related to the travel function of Data::Deep
- ###############################################################################
-START_TEST_MODULE('Travel');
- ###
-###
-##
-#
-
-o_complex(0);
-
-#############################################################################
-
-ok(testTravel(" 0 travellig through ",
-	      [\{a=>3,b=>sub{return 'test'}}],
-   [
-    '0 > @0 : ARRAY',
-    '1 > @0$ : REF',
-    '2 > @0$%a : HASH',
-    '3 > @0$%a=3 : ',
-    '2 > @0$%b : HASH',
-    '3 > @0$%b& : CODE'
-   ]));
-
-
-ok(testTravel(" 0 travellig through ",
-	      [\{a=>3,b=>sub{return 'test'}}],
-   [
-    '0 > @0 : ARRAY',
-    '1 > @0$ : REF',
-    '2 > @0$%a : HASH',
-    '3 > @0$%a=3 : ',
-    '2 > @0$%b : HASH',
-    '3 > @0$%b& : CODE'
-   ]));
-
-END_TEST_MODULE('Travel');
 
 
 
@@ -1683,6 +1883,24 @@ START_TEST_MODULE('key');
 ###
 ##
 #
+
+
+  o_key({ 'A:' => {
+		regexp=>['|','Data::Dumper','%','todump','@',0,'$','%','key','?='],
+		eval=>'[0]->{key}'
+	       }
+	});
+
+  ok(testPathSearch("Search Complex key 2",
+		    { toto1=> new Data::Dumper([\ {key=>'toto one'}]),
+		      toto2=> new Data::Dumper([\ {key=>'toto two'}])
+		    },
+		    '/A:',
+		    ['%toto1/A:toto one',
+		     '%toto2/A:toto two'
+		    ]
+		   ));
+
 
 o_complex(0);
 
@@ -1731,82 +1949,78 @@ o_complex(0);
 
   #############################################
 
-
   my $crc_k = ['%','crc32'];
   my $sz_k = ['%','sz'];
 
   ok(testSearch("Search key SZ",  $fs1, $sz_k,  0, [4,5,2]));
   ok(testSearch("Search key CRC", $fs1, $crc_k, 0, [4562,8,123]));
 
-
   #############################################
 
   o_key({
 
-#	 '.' => {regexp=>['%','content'],
-#		  eval=>'{content}'
-#		 },
-	 CRC => {regexp=>['%','crc32','?='],
-		 eval=>'{crc32}'
+	 '.' => {
+		 regexp=>['%','content'],
+		 eval=>'{content}'
 		},
-	 SZ  => {regexp=>['%','sz','?='],
-		 eval=>'{sz}',
-		}
+	 'CRC:' => {
+		    regexp=>['%','crc32','?='],
+		    eval=>'{crc32}'
+		   },
+	 'CRC!' => {
+		    regexp=>['%','crc32','='],
+		    eval=>'{crc32}'
+		   },
+	 'CRC_' => {
+		   regexp=>['%','crc32'],
+		   eval=>'{crc32}'
+		  },
+	 'SZ'  => {
+		    regexp=>['%','sz'],
+		    eval=>'{sz}',
+		   }
 	});
   #############################################
 
+  my $what = patternText2Dom('/CRC:');
+
+# /!\ the key taken for the match path is ambigues
+  ok(patternDom2Text($what),'/CRC_?=');
+
+
   ok(testPathSearch("Search Complex key 1", $fs1,
-		    ['/','CRC'], # you cannot put '=','value' because the ?= eat it!
-		    #    ['/','CRC'], # you cannot put '=','value' because the ?= eat it!
+		    '/CRC:',
 		    [
-		     ['%','content','%','dir1','%','content','%','test.doc','/','CRC'],
-		     ['%','content','%','dir1','%','content','%','file1','/','CRC'],
-		     ['%','content','%','dir1','/','CRC'],
+		     '/.%dir1/.%test.doc/CRC_=8',
+		     '/.%dir1/.%file1/CRC_=4562',
+		     '/.%dir1/CRC_=123'
+		    ]));
+
+  ok(testPathSearch("Search Complex key 2", $fs1,
+		    '/SZ?=',
+		    [
+		     '/.%dir1/.%test.doc/SZ=5',
+		     '/.%dir1/.%file1/SZ=4',
+		     '/.%dir1/SZ=2'
 		    ]));
 
 
-  o_key({ A => {regexp=>['|','Data::Dumper','%','todump','@',0,'$','%','key'],
-	      eval=>'[0]->{key}'
-	     }
-      });
-
-  ok(testPathSearch("Search Complex key 2",
-		    { toto1=> new Data::Dumper([\ {key=>'toto one'}]),
-		      toto2=> new Data::Dumper([\ {key=>'toto two'}])
-		    },
-		    ['/','A','=',sub{/two/}], # you can put '=','value'
-		    [['%','toto2','/','A','=','toto two']]));
-
-
-o_key({
-       CRC => {regexp=>$crc_k,
-	       eval=>'{crc32}',
-	       priority=>1
-	      },
-       SZ  => {regexp=>$sz_k,
-	       eval=>'{sz}',
-	       priority=>2
-	      },
-       '.'  => {regexp=>['%','content'],
-		eval=>'{content}',
-		priority=>3
-	       }
-      });
 
 ok(testPathSearch("Search Complex key 3",$fs1,
-		  ['/','CRC','=',4562],
-		  [['/','.','%','dir1','/','.','%','file1','/','CRC','=',4562]]));
+		  '/CRC!4562',
+		  ['/.%dir1/.%file1/CRC_=4562']
+		 ));
 
 
 ok(testSearch("Search Complex key 4",
 	      $fs1,
-	      ['/','CRC','=',123],
+	      '/CRC!123',
 	      -2,
 	      [ $fs1->{'content'}{'dir1'} ]));
 
 ok(testSearch("Search Complex key 5",
 	      $fs1,
-	      ['/','CRC','=',4562],
+	      '/CRC!4562',
 	      -2,
 	      [ $fs1->{'content'}{'dir1'}{'content'}{'file1'} ]));
 
@@ -1832,16 +2046,21 @@ testCompare( "key compare",
 	      crc32=>24,sz=>45,
 	      content=>{op=>'ds'}
 	     },
-	     [ 'change(/CRC,/CRC)=20/=>24' ]
+	     [ 'change(/CRC_,/CRC_)=20/=>24' ]
 	   );
 
 
+# TIPS : kindly normal usage
+
 title('test to modify a returned node') and do {
   my @nodes = path($fs2,
-		   [ search($fs2,['/','CRC','=',4562])
-		   ],-2);	
-
-  $nodes[0]->{sz}=46; # change size of the pointed file with CRC 4562
+		   [
+		    search($fs2,patternText2Dom('/CRC_=4562'))
+		   ],
+		   -2
+		  );	
+  # change size of file1 / previously found by CRC 4562 (*)
+  $nodes[0]->{sz}=46;
 };
 
 
@@ -1849,19 +2068,13 @@ o_complex(1);
 
 # Power
 
-#warn Dumper($fs1).' Vs '.Dumper($fs2);
-
 testCompare( "key compare 2", $fs1 , $fs2,
-	     [ 'add(/.%dir1/.,/.%dir1/.%docs)={"sz"=>45,"content"=>{},"crc32"=>0}',
-	       'change(/.%dir1/SZ,/.%dir1/SZ)=2/=>1',
-	       'change(/.%dir1/.%file1/SZ,/.%dir1/.%file1/SZ)=4/=>46',
-	       'move(/.%dir1/.%test.doc,/.%test.doc)='
+	     [ 
+	      'move(/.%dir1/.%test.doc,/.%test.doc)=',  # Just powerfull
+              'add(/.%dir1/.,/.%dir1/.%docs)={\'content\'=>{},\'crc32\'=>0,\'sz\'=>45}',
+	      'change(/.%dir1/SZ,/.%dir1/SZ)=2/=>1',
+	      'change(/.%dir1/.%file1/SZ,/.%dir1/.%file1/SZ)=4/=>46' # (*)
 	     ],1);
-
-#  Results remain :
-        #remove(/.%dir1/.%test.doc,/.%dir1/.)={"sz"=>5,"crc32"=>8}
-        #add(/.,/.%test.doc)={"sz"=>5,"crc32"=>8}
-
 
 # key priority check
 
@@ -1883,7 +2096,7 @@ START_TEST_MODULE('zap');
 #
 
 o_complex(0);
-#ok(1); # TODO : zap() 
+#ok(1); # TODO : zap() method to omit path in function
 
 
 END_TEST_MODULE('zap');
@@ -1997,10 +2210,10 @@ $SIG{ALRM} = sub { ok(0); exit(0);};
 foreach $cplx (0..1) {
   o_complex($cplx);
 
-  my $a = { x => [2], b=>3 };
+  my $a = { x => [20], b=>3 };
   push(@{$a->{x}}, $a->{x});
 
-  my $b = { x => [1], b=>2 };
+  my $b = { x => [1], b=>20 };
   push(@{$b->{x}}, $b->{x});
 
   alarm(1);
@@ -2008,13 +2221,11 @@ foreach $cplx (0..1) {
 		"loop travel ",
 		$a,
 		[
-		 '0 > %b : HASH',
-		 '1 > %b=3 : ',
-		 '0 > %x : HASH',
-		 '1 > %x@0 : ARRAY',
-		 '2 > %x@0=2 : ',
-		 '1 > %x@1 : ARRAY',
-		 '2 > %x@1$loop : ARRAY'
+		 'add(,)={}',
+		 'add(,%b)=\'3\'',
+		 'add(%x,%x)=[]',
+		 'add(%x,%x@0)=\'20\'',
+		 'loop(%x@1$loop,%x@1$loop)=' # %x@1$loop : ARRAY'
 		]));
   alarm(0);
 
@@ -2023,13 +2234,11 @@ foreach $cplx (0..1) {
 		"loop travel II",
 		$b,
 		[
-		 '0 > %b : HASH',
-		 '1 > %b=2 : ',
-		 '0 > %x : HASH',
-		 '1 > %x@0 : ARRAY',
-		 '2 > %x@0=1 : ',
-		 '1 > %x@1 : ARRAY',
-		 '2 > %x@1$loop : ARRAY'
+		 'add(,)={}',
+		 'add(,%b)=\'20\'',
+		 'add(%x,%x)=[]',
+		 'add(%x,%x@0)=\'1\'',
+		 'loop(%x@1$loop,%x@1$loop)=' # %x@1$loop : ARRAY'
 		]));
   alarm(0);
 
@@ -2038,19 +2247,19 @@ foreach $cplx (0..1) {
 
   ok(testSearch("loop search",
 		$a,
-		['@',1],
-		1,
-		[[2,2]]
+		['@',0],
+		0,
+		[20]
   ));
   alarm(0);
 
   alarm(1);
   ok(testCompare( "loop compare in Array", $a , $b,
 		  [
-		   'change(%b,%b)=3/=>2',
-		   'change(%x@0,%x@0)=2/=>1'
+		   'change(%b,%b)=3/=>20',
+		   'change(%x@0,%x@0)=20/=>1'
 		  ],
-		  1));
+		  0)); # patch cannot create loop
   alarm(0);
 
   $b->{c}=$b->{x}[1];
@@ -2059,12 +2268,12 @@ foreach $cplx (0..1) {
   alarm(1);
   ok(testCompare( "loop compare in Array II", $a , $b,
 		  [
-		   'change(%b,%b)=3/=>2',
-		   'change(%x@0,%x@0)=2/=>1',
+		   'change(%b,%b)=3/=>20',
+		   'change(%x@0,%x@0)=20/=>1',
 		   'add(,%c)=[1,$t1,$t1]',
 		   'add(%x,%x@2)=[1,$t1,$t1]'
 		  ],
-		  1));
+		  0)); # patch cannot create loop
   alarm(0);
 
 
@@ -2075,15 +2284,15 @@ foreach $cplx (0..1) {
   push(@{$b->{x}}, $b->{x});
 
   alarm(1);
+
+
   ok(testCompare( "loop compare in Hash", $a , $b,
 		  [
-		   'change(%b,%b)={"b"=>$t1,"x"=>[2]}/=>2',
+		   'change(%b,%b)={\'b\'=>$t1,\'x\'=>[2]}/=>2',
 		   'change(%x@0,%x@0)=2/=>1',
 		   'add(%x,%x@1)=[1,$t1]'
 		  ],
-		  1));
-
-
+		  0)); # patch cannot create loop
 
   alarm(0);
 

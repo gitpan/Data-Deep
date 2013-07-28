@@ -37,3 +37,11 @@ Revision history for Perl extension Data::DeepManip.
 	deep.t : compare loop (for(0..1) removed) for clearest view on errors related to tests in both complex or not (o_complex)
 	also add warn if failure occurs instead of keeping in debug mode (o_debug/bug) which is verbose and not helping for FAILS tests
 
+0.11 
+	add argument of the visitor for open/closing ARRAY/HASH in travel() crossing
+	travel() results append using internal function __appendVisitorResult()
+	quotation from " to ' modification in patch text format
+	Key optimisation :
+	   - Key usage is used in Text patch format and removed from Dom (previous $isKey() computations search/compare/travel ...)
+	   - correct DomPatch2Text() & TextPatch2Dom() for Key handling
+	add public functions patternDom2Text() & patternText2Dom() (redesigned from previous internal function)
