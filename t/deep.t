@@ -412,7 +412,7 @@ sub testCompare {
 ##############################################################################
 use strict;
 use Test;
-BEGIN { plan tests =>289};
+BEGIN { plan tests =>288};
 ##############################################################################
 ##############################################################################
 ##############################################################################
@@ -456,12 +456,6 @@ $@ and die $@;
 
 unless (ok(__d($d1) eq __d($d2))) {
   warn "\nDifferences : \n".join("\n",map {domPatch2TEXT $_} compare($d1,$d2))."\n";
-}
-
-unless (ok(Dumper($d1) eq Dumper($d2))) {
-  warn "\nDifferences with Data::Dumper : \n".join("\n",map {domPatch2TEXT $_} compare($d1,$d2))."\n";
-  # __d() pbm ????
-
 }
 
 
@@ -1607,7 +1601,7 @@ __DIFF
 ok(testCompare( "Ref module 4",
 		[new Data::Dumper([1])],
 		[new Data::Dumper([2])],
-		(($^V and $^V lt v5.8.0)
+		(($^V and $^V lt v5.6.2)
 		 &&	      ['change(@0|Data::Dumper$,@0|Data::Dumper$)="+1"/=>"+2"']	
 		 ||           ['change(@0|Data::Dumper%todump@0,@0|Data::Dumper%todump@0)=1/=>2']
 		)

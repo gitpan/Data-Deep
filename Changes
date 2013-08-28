@@ -45,3 +45,5 @@ Revision history for Perl extension Data::DeepManip.
 	   - Key usage is used in Text patch format and removed from Dom (previous $isKey() computations search/compare/travel ...)
 	   - correct DomPatch2Text() & TextPatch2Dom() for Key handling
 	add public functions patternDom2Text() & patternText2Dom() (redesigned from previous internal function)
+
+0.12    Warning purify
